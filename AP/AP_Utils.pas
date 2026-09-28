@@ -22,6 +22,10 @@ function SameLinkedRecord(a, b: IInterface): Boolean;
 function FindNPCByEditorID(const edid: string): IInterface;
 function IsNPCFemale(npc: IInterface): Boolean;
 function IsNPCUsingTraits(npc: IInterface): Boolean;
+function GetFaceGenRelPath(const pluginName, formID: string; isMesh: Boolean): string;
+function GetNPCFaceGenRelPath(npc: IInterface; isMesh: Boolean): string;
+function ResourceExists(const relPath: string): Boolean;
+function CopyResource(const relPath, outPath: string): Boolean;
 procedure SaveListToFile(sl: TStringList; const fileName: string);
 function SaveExportList(sl, header: TStringList; const saveDir, fileBaseName, fileExt, saveLabel: string): Boolean;
 
@@ -290,6 +294,65 @@ begin
   templateFlags := ElementByPath(npc, 'ACBS - Configuration\Template Flags');
   if Assigned(templateFlags) then
     Result := GetElementNativeValues(templateFlags, 'Use Traits') <> 0;
+end;
+
+// FaceGen path relative to Data. formID: 8 hex digits, without load order index.
+function GetFaceGenRelPath(const pluginName, formID: string; isMesh: Boolean): string;
+begin
+  if isMesh then
+    Result := 'meshes\actors\character\FaceGenData\FaceGeom\' + pluginName + '\' + formID + '.nif'
+  else
+    Result := 'textures\actors\character\FaceGenData\FaceTint\' + pluginName + '\' + formID + '.dds';
+end;
+
+function GetNPCFaceGenRelPath(npc: IInterface; isMesh: Boolean): string;
+var
+  m: IInterface;
+begin
+  m := MasterOrSelf(npc);
+  Result := GetFaceGenRelPath(GetFileName(GetFile(m)), PadLeftZero(GetLocalFormIDHex(m), 8), isMesh);
+end;
+
+// Last container (BSA or folder) holding relPath, '' if none.
+// Only knows files present when xEdit started.
+function FindResourceContainer(const relPath: string): string;
+var
+  containers: TStringList;
+begin
+  Result := '';
+  containers := TStringList.Create;
+  try
+    ResourceCount(relPath, containers);
+    if containers.Count > 0 then
+      Result := containers[containers.Count - 1];
+  finally
+    containers.Free;
+  end;
+end;
+
+// Loose file in Data or file in an archive
+function ResourceExists(const relPath: string): Boolean;
+begin
+  Result := FileExists(DataPath + relPath) or (FindResourceContainer(relPath) <> '');
+end;
+
+// Copies a loose or archived file. Returns true if outPath exists afterwards.
+function CopyResource(const relPath, outPath: string): Boolean;
+var
+  container: string;
+begin
+  if not DirectoryExists(ExtractFilePath(outPath)) then
+    ForceDirectories(ExtractFilePath(outPath));
+
+  if FileExists(DataPath + relPath) then
+    CopyFile(PChar(DataPath + relPath), PChar(outPath), False)
+  else begin
+    container := FindResourceContainer(relPath);
+    if container <> '' then
+      ResourceCopy(container, relPath, outPath);
+  end;
+
+  Result := FileExists(outPath);
 end;
 
 // .toml files must be UTF-8 (Recast). xEdit only exposes SaveToFile(fileName)

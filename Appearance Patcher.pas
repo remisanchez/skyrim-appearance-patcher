@@ -2,11 +2,13 @@
   ==============================================================================
    Appearance Patcher.pas
   ==============================================================================
-   Converts an NPC replacer plugin into runtime patches:
-     - unique NPCs          -> SkyPatcher npc rules or Recast patch
-     - NPCs in leveled lists -> SkyPatcher leveledList rules (whatever the
-                               framework): the original NPC is replaced by the
-                               isolated replacer NPC, with the same level/count.
+   Converts an NPC replacer plugin into runtime patches. Changes are detected
+   automatically: face (FaceGen), skin, race, gender and voice.
+
+     - NPC in leveled lists, with FaceGen -> SkyPatcher leveledList rules: the
+       original NPC is replaced by the isolated NPC, same level and count.
+     - Other NPCs -> SkyPatcher npc rules, or Recast when selected and able to
+       apply every change (face required, no race change).
 
    Run it on the replacer plugin. Integration mode first isolates the NPC
    overrides (AP_Isolator), otherwise the plugin must already be isolated
@@ -28,28 +30,29 @@ uses 'AP\AP_LeveledLists';
 
 const
   OUTPUT_ROOT = 'Appearance Patcher';
+  USE_FORM_ID = true;
 
 var
-  slExport, slExportLL, LVLNMap: TStringList;
-  coChar, framework, replacerFileName: string;
-  llNPCCount: integer;
-
-  // Options
-  callIsolator, useFormID, disableAll, replaceVS: boolean;
-  outputSkin, outputRace, outputGender, outputName, outputVoiceType, outputOutfit: boolean;
+  slSkyPatcher, slRecast, slLeveledLists, LVLNMap: TStringList;
+  callIsolator, useRecast: boolean;
+  replacerFileName: string;
+  llCount, spCount, recastCount, unchangedCount: integer;
 
 function Initialize: integer;
 var
-  opts, disableOpts: TStringList;
-  i, userChoice: integer;
+  userChoice: integer;
 begin
   Result := 0;
 
-  slExport     := TStringList.Create;
-  slExportLL   := TStringList.Create;
-  LVLNMap      := nil;
-  llNPCCount   := 0;
-  callIsolator := false;
+  slSkyPatcher   := TStringList.Create;
+  slRecast       := TStringList.Create;
+  slLeveledLists := TStringList.Create;
+  LVLNMap        := nil;
+  llCount        := 0;
+  spCount        := 0;
+  recastCount    := 0;
+  unchangedCount := 0;
+  callIsolator   := false;
 
   if MessageDlg(
     'Run in Integration Mode?' + #13#10 +
@@ -59,26 +62,18 @@ begin
     callIsolator := true;
 
   userChoice := MessageDlg(
-    'Framework for unique NPCs:' + #13#10 +
+    'Framework:' + #13#10 +
     'Yes = SkyPatcher' + #13#10 +
-    'No = Recast' + #13#10 + #13#10 +
-    'NPCs in leveled lists always use SkyPatcher.',
+    'No = Recast + SkyPatcher' + #13#10 + #13#10 +
+    'With Recast, SkyPatcher still handles leveled lists and the changes' + #13#10 +
+    'Recast cannot apply (race, NPCs without FaceGen).',
     mtConfirmation, [mbYes, mbNo, mbCancel], 0);
-  if userChoice = mrYes then
-    framework := 'SkyPatcher'
-  else if userChoice = mrNo then
-    framework := 'Recast'
-  else begin
+  if userChoice = mrCancel then begin
     AddMessage('Framework selection was canceled.');
     Result := -1;
     Exit;
   end;
-  AddMessage('Framework: ' + framework);
-
-  // SkyPatcher .ini: ';', Recast .toml: '#'
-  coChar := ';';
-  if framework = 'Recast' then
-    coChar := '#';
+  useRecast := userChoice = mrNo;
 
   if callIsolator then
     if IsolatorInitialize = -1 then begin
@@ -87,147 +82,89 @@ begin
       Exit;
     end;
 
-  opts        := TStringList.Create;
-  disableOpts := TStringList.Create;
-  try
-    opts.Values['Use Form ID for config file output'] := 'False';
-    opts.Values['Disable the config file by default'] := 'False';
-    opts.Values['Replace Visual Style']               := 'True';
-    opts.Values['Output Skin or body setting']        := 'True';
-    opts.Values['Output Race setting']                := 'False';
-    opts.Values['Output Gender setting']              := 'False';
-    opts.Values['Output Name setting']                := 'False';
-    opts.Values['Output VoiceType setting']           := 'False';
-    opts.Values['Output Outfit setting']              := 'False';
-
-    // Not supported by Recast
-    if framework = 'Recast' then begin
-      disableOpts.Add('Output Race setting');
-      disableOpts.Add('Output Outfit setting');
-    end;
-
-    if not ShowCheckboxForm(opts, disableOpts, 'Choose ' + framework + ' Option') then begin
-      AddMessage('Selection was canceled.');
-      Result := -1;
-      Exit;
-    end;
-
-    for i := 0 to opts.Count - 1 do
-      AddMessage('  ' + opts.Names[i] + ' - ' + opts.ValueFromIndex[i]);
-
-    useFormID       := GetBoolSLValue(opts.Values['Use Form ID for config file output']);
-    disableAll      := GetBoolSLValue(opts.Values['Disable the config file by default']);
-    replaceVS       := GetBoolSLValue(opts.Values['Replace Visual Style']);
-    outputSkin      := GetBoolSLValue(opts.Values['Output Skin or body setting']);
-    outputRace      := GetBoolSLValue(opts.Values['Output Race setting']);
-    outputGender    := GetBoolSLValue(opts.Values['Output Gender setting']);
-    outputName      := GetBoolSLValue(opts.Values['Output Name setting']);
-    outputVoiceType := GetBoolSLValue(opts.Values['Output VoiceType setting']);
-    outputOutfit    := GetBoolSLValue(opts.Values['Output Outfit setting']);
-  finally
-    opts.Free;
-    disableOpts.Free;
-  end;
-
-  LVLNMap := BuildLVLNMap(useFormID);
+  LVLNMap := BuildLVLNMap(USE_FORM_ID);
 end;
 
-// Comment prefix of a setting line: disabled by option, or same value as the target
-function CommentOutIf(sameValue: boolean): string;
-begin
-  Result := '';
-  if disableAll or sameValue then
-    Result := coChar;
-end;
-
-// Same, for a linked record: also commented out when the replacer has none
-function CommentOutLinked(replacerRecord, targetRecord: IInterface; const path: string): string;
+// FaceGen of the isolated NPC: just copied by the isolator, or already installed
+function HasFaceGen(npc: IInterface): boolean;
 var
-  replacerLinked: IInterface;
+  relPath: string;
 begin
-  replacerLinked := GetLinkedMasterRecord(replacerRecord, path);
-  Result := CommentOutIf(not Assigned(replacerLinked) or SameLinkedRecord(replacerLinked, GetLinkedMasterRecord(targetRecord, path)));
+  relPath := GetNPCFaceGenRelPath(npc, true);
+  Result := FileExists(DataPath + OUTPUT_ROOT + '\' + relPath) or ResourceExists(relPath);
 end;
 
-procedure AddSkyPatcherRules(targetRecord, replacerRecord: IInterface);
-var
-  targetID, skinID: string;
-  skinRecord: IInterface;
+procedure AddHeader(sl: TStringList; const coChar: string; targetRecord, replacerRecord: IInterface);
 begin
-  targetID := GetSkyPatcherID(targetRecord, useFormID);
+  sl.Add(coChar + GetElementEditValues(targetRecord, 'FULL'));
+  sl.Add(coChar + 'Form ID: ' + GetLocalFormIDHex(targetRecord) + '  Editor ID: ' + EditorID(targetRecord) +
+    '  ->  ' + EditorID(replacerRecord));
+end;
 
-  slExport.Add(CommentOutIf(not replaceVS) + 'filterByNpcs=' + targetID +
-    ':copyVisualStyle=' + GetSkyPatcherID(replacerRecord, useFormID));
+procedure AddSkyPatcherRules(targetRecord, replacerRecord, skinRecord, raceRecord, voiceRecord: IInterface;
+  hasFace, skinChanged, raceChanged, sexChanged, voiceChanged: boolean);
+var
+  targetID: string;
+begin
+  targetID := 'filterByNpcs=' + GetSkyPatcherID(targetRecord, USE_FORM_ID);
+  AddHeader(slSkyPatcher, ';', targetRecord, replacerRecord);
 
-  if outputSkin then begin
-    // Skin always by FormID, 'null' resets to the race default body
-    skinRecord := GetLinkedMasterRecord(replacerRecord, 'WNAM');
-    skinID := 'null';
+  if hasFace then
+    slSkyPatcher.Add(targetID + ':copyVisualStyle=' + GetSkyPatcherID(replacerRecord, USE_FORM_ID));
+
+  // 'null' resets the skin to the race default body
+  if skinChanged then
     if Assigned(skinRecord) then
-      skinID := GetSkyPatcherID(skinRecord, true);
-    slExport.Add(CommentOutIf(SameLinkedRecord(skinRecord, GetLinkedMasterRecord(targetRecord, 'WNAM'))) +
-      'filterByNpcs=' + targetID + ':skin=' + skinID);
-  end;
-
-  if outputRace then
-    slExport.Add(CommentOutLinked(replacerRecord, targetRecord, 'RNAM') +
-      'filterByNpcs=' + targetID + ':race=' + GetSkyPatcherID(GetLinkedMasterRecord(replacerRecord, 'RNAM'), useFormID));
-
-  if outputGender then
-    if IsNPCFemale(replacerRecord) then
-      slExport.Add(CommentOutIf(IsNPCFemale(targetRecord)) + 'filterByNpcs=' + targetID + ':setFlags=female')
+      slSkyPatcher.Add(targetID + ':skin=' + GetSkyPatcherID(skinRecord, USE_FORM_ID))
     else
-      slExport.Add(CommentOutIf(not IsNPCFemale(targetRecord)) + 'filterByNpcs=' + targetID + ':removeFlags=female');
+      slSkyPatcher.Add(targetID + ':skin=null');
 
-  if outputName then
-    slExport.Add(CommentOutIf(GetElementEditValues(replacerRecord, 'FULL') = GetElementEditValues(targetRecord, 'FULL')) +
-      'filterByNpcs=' + targetID + ':fullName=~' + GetElementEditValues(replacerRecord, 'FULL') + '~');
+  if raceChanged then
+    slSkyPatcher.Add(targetID + ':race=' + GetSkyPatcherID(raceRecord, USE_FORM_ID));
 
-  if outputVoiceType then
-    slExport.Add(CommentOutLinked(replacerRecord, targetRecord, 'VTCK') +
-      'filterByNpcs=' + targetID + ':voiceType=' + GetSkyPatcherID(GetLinkedMasterRecord(replacerRecord, 'VTCK'), useFormID));
+  if sexChanged then
+    if IsNPCFemale(replacerRecord) then
+      slSkyPatcher.Add(targetID + ':setFlags=female')
+    else
+      slSkyPatcher.Add(targetID + ':removeFlags=female');
 
-  if outputOutfit then
-    slExport.Add(CommentOutLinked(replacerRecord, targetRecord, 'DOFT') +
-      'filterByNpcs=' + targetID + ':outfitDefault=' + GetSkyPatcherID(GetLinkedMasterRecord(replacerRecord, 'DOFT'), useFormID));
+  if voiceChanged then
+    slSkyPatcher.Add(targetID + ':voiceType=' + GetSkyPatcherID(voiceRecord, USE_FORM_ID));
+
+  slSkyPatcher.Add('');
+  Inc(spCount);
 end;
 
-procedure AddRecastPatch(targetRecord, replacerRecord: IInterface);
-var
-  skinRecord: IInterface;
+procedure AddRecastPatch(targetRecord, replacerRecord, skinRecord, voiceRecord: IInterface;
+  skinChanged, sexChanged, voiceChanged: boolean);
 begin
-  slExport.Add('[[npcs]]');
-  slExport.Add('target = "' + GetRecastID(targetRecord, useFormID, true) + '"');
-  slExport.Add(CommentOutIf(not replaceVS) + 'face = "' + GetRecastID(replacerRecord, useFormID, true) + '"');
+  AddHeader(slRecast, '#', targetRecord, replacerRecord);
+  slRecast.Add('[[npcs]]');
+  slRecast.Add('target = "' + GetRecastID(targetRecord, USE_FORM_ID, true) + '"');
+  slRecast.Add('face = "' + GetRecastID(replacerRecord, USE_FORM_ID, true) + '"');
 
-  if outputSkin then begin
-    // Recast cannot reset to the default body: no skin, no line
-    skinRecord := GetLinkedMasterRecord(replacerRecord, 'WNAM');
-    if Assigned(skinRecord) then
-      slExport.Add(CommentOutIf(SameLinkedRecord(skinRecord, GetLinkedMasterRecord(targetRecord, 'WNAM'))) +
-        'body = "' + GetRecastID(skinRecord, true, false) + '"');
-  end;
+  if skinChanged and Assigned(skinRecord) then
+    slRecast.Add('body = "' + GetRecastID(skinRecord, USE_FORM_ID, false) + '"');
 
-  if outputGender then
+  if sexChanged then
     if IsNPCFemale(replacerRecord) then
-      slExport.Add(CommentOutIf(IsNPCFemale(targetRecord)) + 'sex = "female"')
+      slRecast.Add('sex = "female"')
     else
-      slExport.Add(CommentOutIf(not IsNPCFemale(targetRecord)) + 'sex = "male"');
+      slRecast.Add('sex = "male"');
 
-  if outputName then
-    slExport.Add(CommentOutIf(GetElementEditValues(replacerRecord, 'FULL') = GetElementEditValues(targetRecord, 'FULL')) +
-      'name = "' + GetElementEditValues(replacerRecord, 'FULL') + '"');
+  if voiceChanged then
+    slRecast.Add('voice = "' + GetRecastID(voiceRecord, USE_FORM_ID, false) + '"');
 
-  if outputVoiceType then
-    slExport.Add(CommentOutLinked(replacerRecord, targetRecord, 'VTCK') +
-      'voice = "' + GetRecastID(GetLinkedMasterRecord(replacerRecord, 'VTCK'), useFormID, false) + '"');
+  slRecast.Add('');
+  Inc(recastCount);
 end;
 
 function Process(e: IInterface): integer;
 var
-  replacerRecord, targetRecord: IInterface;
-  replacerEditorID, targetEditorID: string;
+  replacerRecord, targetRecord, skinRecord, raceRecord, voiceRecord: IInterface;
+  replacerEditorID, targetEditorID, changes: string;
   underscorePos, idxLL, placedCount: integer;
+  hasFace, skinChanged, raceChanged, sexChanged, voiceChanged: boolean;
 begin
   Result := 0;
 
@@ -243,7 +180,7 @@ begin
       Exit;
   end;
 
-  // Not isolated (skipped or removed)
+  // Not isolated (skipped)
   if not Assigned(replacerRecord) then
     Exit;
 
@@ -266,27 +203,55 @@ begin
     Exit;
   end;
 
-  // Generic NPC: leveled list rules only
+  // Detected changes
+  hasFace      := HasFaceGen(replacerRecord);
+  skinRecord   := GetLinkedMasterRecord(replacerRecord, 'WNAM');
+  raceRecord   := GetLinkedMasterRecord(replacerRecord, 'RNAM');
+  voiceRecord  := GetLinkedMasterRecord(replacerRecord, 'VTCK');
+  skinChanged  := not SameLinkedRecord(skinRecord, GetLinkedMasterRecord(targetRecord, 'WNAM'));
+  raceChanged  := Assigned(raceRecord) and not SameLinkedRecord(raceRecord, GetLinkedMasterRecord(targetRecord, 'RNAM'));
+  voiceChanged := Assigned(voiceRecord) and not SameLinkedRecord(voiceRecord, GetLinkedMasterRecord(targetRecord, 'VTCK'));
+  sexChanged   := IsNPCFemale(replacerRecord) <> IsNPCFemale(targetRecord);
+
+  changes := '';
+  if hasFace then changes := changes + ' face';
+  if skinChanged then changes := changes + ' skin';
+  if raceChanged then changes := changes + ' race';
+  if sexChanged then changes := changes + ' gender';
+  if voiceChanged then changes := changes + ' voice';
+
+  if changes = '' then begin
+    AddMessage('No change: ' + targetEditorID);
+    Inc(unchangedCount);
+    Exit;
+  end;
+
+  // Generic NPC with a face: replace it in its leveled lists, the isolated NPC
+  // carries every change. Without FaceGen it would have no face: patch the base NPC.
   idxLL := FindLVLNEntries(LVLNMap, targetRecord);
-  if idxLL <> -1 then begin
+  if hasFace and (idxLL <> -1) then begin
     AddMessage('Leveled lists: ' + targetEditorID + ' -> ' + replacerEditorID);
     placedCount := CountPlacedReferences(targetRecord);
     if placedCount > 0 then
       AddMessage('  Warning: also placed ' + IntToStr(placedCount) + ' time(s) in the world, these references keep the original look.');
-    AddLLRules(slExportLL, LVLNMap, idxLL, targetRecord, replacerRecord, useFormID, disableAll);
-    Inc(llNPCCount);
+    AddLLRules(slLeveledLists, LVLNMap, idxLL, targetRecord, replacerRecord, USE_FORM_ID, false);
+    Inc(llCount);
     Exit;
   end;
 
-  // Unique NPC
-  AddMessage(framework + ': ' + targetEditorID + ' -> ' + replacerEditorID);
-  slExport.Add(coChar + GetElementEditValues(targetRecord, 'FULL'));
-  slExport.Add(coChar + 'Form ID: ' + GetLocalFormIDHex(targetRecord) + '  Editor ID: ' + targetEditorID);
-  if framework = 'Recast' then
-    AddRecastPatch(targetRecord, replacerRecord)
-  else
-    AddSkyPatcherRules(targetRecord, replacerRecord);
-  slExport.Add('');
+  // Recast needs a face and cannot change the race
+  if useRecast and hasFace and not raceChanged then begin
+    AddMessage('Recast:' + changes + ': ' + targetEditorID);
+    AddRecastPatch(targetRecord, replacerRecord, skinRecord, voiceRecord, skinChanged, sexChanged, voiceChanged);
+  end
+  else begin
+    if useRecast then
+      AddMessage('SkyPatcher (not supported by Recast):' + changes + ': ' + targetEditorID)
+    else
+      AddMessage('SkyPatcher:' + changes + ': ' + targetEditorID);
+    AddSkyPatcherRules(targetRecord, replacerRecord, skinRecord, raceRecord, voiceRecord,
+      hasFace, skinChanged, raceChanged, sexChanged, voiceChanged);
+  end;
 end;
 
 function Finalize: integer;
@@ -298,37 +263,38 @@ begin
   if callIsolator then
     IsolatorFinalize;
 
-  AddMessage('Unique NPC lines: ' + IntToStr(slExport.Count) + ', leveled list NPCs: ' + IntToStr(llNPCCount) + '.');
+  AddMessage('Leveled lists: ' + IntToStr(llCount) + ', SkyPatcher: ' + IntToStr(spCount) +
+    ', Recast: ' + IntToStr(recastCount) + ', no change: ' + IntToStr(unchangedCount) + '.');
 
-  if slExport.Count > 0 then begin
-    if framework = 'Recast' then begin
-      recastManifest := TStringList.Create;
-      try
-        recastManifest.Add('[manifest]');
-        recastManifest.Add('name = "' + replacerFileName + '"');
-        recastManifest.Add('priority = 100');
-        recastManifest.Add('api_version = 1');
-        recastManifest.Add('');
-        SaveExportList(slExport, recastManifest,
-          DataPath + OUTPUT_ROOT + '\SKSE\Plugins\Recast\Patches\', replacerFileName, '.toml',
-          'Recast NPC config');
-      finally
-        recastManifest.Free;
-      end;
-    end
-    else
-      SaveExportList(slExport, nil,
-        DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\npc\', replacerFileName, '.ini',
-        'SkyPatcher NPC config');
+  if slRecast.Count > 0 then begin
+    recastManifest := TStringList.Create;
+    try
+      recastManifest.Add('[manifest]');
+      recastManifest.Add('name = "' + replacerFileName + '"');
+      recastManifest.Add('priority = 100');
+      recastManifest.Add('api_version = 1');
+      recastManifest.Add('');
+      SaveExportList(slRecast, recastManifest,
+        DataPath + OUTPUT_ROOT + '\SKSE\Plugins\Recast\Patches\', replacerFileName, '.toml',
+        'Recast NPC config');
+    finally
+      recastManifest.Free;
+    end;
   end;
 
-  if slExportLL.Count > 0 then
-    SaveExportList(slExportLL, nil,
+  if slSkyPatcher.Count > 0 then
+    SaveExportList(slSkyPatcher, nil,
+      DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\npc\', replacerFileName, '.ini',
+      'SkyPatcher NPC config');
+
+  if slLeveledLists.Count > 0 then
+    SaveExportList(slLeveledLists, nil,
       DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\leveledList\', replacerFileName, '.ini',
       'SkyPatcher leveled list config');
 
-  slExport.Free;
-  slExportLL.Free;
+  slSkyPatcher.Free;
+  slRecast.Free;
+  slLeveledLists.Free;
   FreeLVLNMap(LVLNMap);
 end;
 

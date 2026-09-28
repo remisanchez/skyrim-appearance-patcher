@@ -2,9 +2,10 @@
   AP_Isolator.pas
   Isolation phase, based on the SkyPatcher RDF NPC Replacer Converter v2
   PreProcessor (mmsk4989): each NPC override of the replacer plugin is copied
-  as a new record "<prefix>_<EditorID>", its FaceGen files are copied to the new
-  FormID, then the override is removed.
-  FaceGen .nif files are copied as is, without editing.
+  as a new record "<prefix>_<EditorID>", its FaceGen files (loose or archived)
+  are copied to the new FormID, then the override is removed.
+  FaceGen .nif files are copied as is: they keep pointing to the original
+  FaceTint path. Use Traits overrides are left unchanged.
 }
 
 unit AP_Isolator;
@@ -28,31 +29,9 @@ const
 
 var
   prefix, firstFileName: string;
-  fileChecked, removeMissingFaceGen: boolean;
-  isolatedCount, removedCount: integer;
+  fileChecked: boolean;
+  isolatedCount, noFaceGenCount: integer;
   slSkipped: TStringList;
-
-function GetFaceGenPath(const baseDir, pluginName, formID: string; isMesh: boolean): string;
-begin
-  if isMesh then
-    Result := baseDir + 'meshes\actors\character\FaceGenData\FaceGeom\' + pluginName + '\' + formID + '.nif'
-  else
-    Result := baseDir + 'textures\actors\character\FaceGenData\FaceTint\' + pluginName + '\' + formID + '.dds';
-end;
-
-// Source files are kept: the copied .nif still points to the original FaceTint
-function CopyFaceGenFile(const oldPath, newPath: string): boolean;
-begin
-  if not DirectoryExists(ExtractFilePath(newPath)) then
-    ForceDirectories(ExtractFilePath(newPath));
-
-  Result := CopyFile(PChar(oldPath), PChar(newPath), False);
-
-  if Result then
-    AddMessage('  ' + oldPath + ' -> ' + newPath)
-  else
-    AddMessage('  Failed to copy: ' + oldPath);
-end;
 
 function CountNPCRecords(f: IInterface): integer;
 var
@@ -129,7 +108,6 @@ end;
 
 function IsolatorInitialize: integer;
 var
-  opts, disableOpts: TStringList;
   inputOK, canceled, valid: boolean;
   inputValue: string;
 begin
@@ -138,25 +116,8 @@ begin
   firstFileName := '';
   fileChecked := false;
   isolatedCount := 0;
-  removedCount := 0;
+  noFaceGenCount := 0;
   slSkipped := TStringList.Create;
-
-  opts := TStringList.Create;
-  disableOpts := TStringList.Create;
-  try
-    opts.Values['Remove NPC records without FaceGen files'] := 'False';
-
-    if not ShowCheckboxForm(opts, disableOpts, 'Choose Isolation Option') then begin
-      AddMessage('Selection was canceled.');
-      Result := -1;
-      Exit;
-    end;
-
-    removeMissingFaceGen := GetBoolSLValue(opts.Values['Remove NPC records without FaceGen files']);
-  finally
-    opts.Free;
-    disableOpts.Free;
-  end;
 
   // No Break/Exit inside repeat: known xEdit parser issue
   canceled := false;
@@ -188,9 +149,8 @@ end;
 function IsolatorProcess(e: IInterface; var newRecord: IInterface; const outputRoot: string): integer;
 var
   f: IInterface;
-  fileName, baseFileName, oldFormID, newFormID, oldEditorID, recordID: string;
-  oldMeshPath, oldTexturePath, newMeshPath, newTexturePath: string;
-  missingMesh, missingTint, eslFlag: boolean;
+  fileName, newFormID, recordID, newMeshPath, newTexturePath: string;
+  hasMesh, eslFlag: boolean;
 begin
   Result := 0;
   newRecord := nil;
@@ -224,60 +184,41 @@ begin
   if Signature(e) <> 'NPC_' then
     Exit;
 
-  if IsMaster(e) then begin
-    AddMessage('Skipped, not an override: ' + Name(e));
+  // Records added by the replacer (including previously isolated NPCs)
+  if IsMaster(e) then
     Exit;
-  end;
 
-  baseFileName := GetFileName(GetFile(MasterOrSelf(e)));
-  oldFormID    := IntToHex64(GetElementNativeValues(e, 'Record Header\FormID') and $FFFFFF, 8);
-  oldEditorID  := EditorID(e);
-  recordID     := oldFormID + ' ' + oldEditorID;
+  recordID := GetLocalFormIDHex(e) + ' ' + EditorID(e);
 
-  oldMeshPath    := GetFaceGenPath(DataPath, baseFileName, oldFormID, true);
-  oldTexturePath := GetFaceGenPath(DataPath, baseFileName, oldFormID, false);
-  missingMesh    := not FileExists(oldMeshPath);
-  missingTint    := not FileExists(oldTexturePath);
-
-  if missingMesh <> missingTint then begin
-    if missingMesh then
-      AddMessage('Skipped, FaceGeom missing: ' + recordID)
-    else
-      AddMessage('Skipped, FaceTint missing: ' + recordID);
-    slSkipped.Add(recordID);
+  // Race, gender, voice and face come from the template
+  if IsNPCUsingTraits(e) then begin
+    AddMessage('Skipped, Use Traits template flag: ' + recordID);
+    slSkipped.Add(recordID + ' (Use Traits)');
     Exit;
-  end;
-
-  if missingMesh and missingTint then begin
-    if removeMissingFaceGen then begin
-      AddMessage('Removed, no FaceGen files: ' + recordID);
-      Remove(e);
-      Inc(removedCount);
-      Exit;
-    end;
-    // Use Traits NPCs get their face from their template
-    if not IsNPCUsingTraits(e) then begin
-      AddMessage('Skipped, no FaceGen files: ' + recordID);
-      slSkipped.Add(recordID);
-      Exit;
-    end;
   end;
 
   newRecord := wbCopyElementToFile(e, f, True, True);
   if not Assigned(newRecord) then begin
     AddMessage('Error: failed to copy ' + Name(e));
+    slSkipped.Add(recordID + ' (copy failed)');
     Exit;
   end;
 
-  SetElementEditValues(newRecord, 'EDID', prefix + '_' + oldEditorID);
-  newFormID := IntToHex64(GetElementNativeValues(newRecord, 'Record Header\FormID') and $FFFFFF, 8);
+  SetElementEditValues(newRecord, 'EDID', prefix + '_' + EditorID(e));
+  newFormID := PadLeftZero(GetLocalFormIDHex(newRecord), 8);
   AddMessage('Isolated: ' + recordID + ' -> ' + Name(newRecord));
 
-  if not missingMesh then begin
-    newMeshPath    := GetFaceGenPath(DataPath + outputRoot + '\', fileName, newFormID, true);
-    newTexturePath := GetFaceGenPath(DataPath + outputRoot + '\', fileName, newFormID, false);
-    CopyFaceGenFile(oldMeshPath, newMeshPath);
-    CopyFaceGenFile(oldTexturePath, newTexturePath);
+  // FaceGen of the original NPC, as provided by the replacer
+  newMeshPath    := DataPath + outputRoot + '\' + GetFaceGenRelPath(fileName, newFormID, true);
+  newTexturePath := DataPath + outputRoot + '\' + GetFaceGenRelPath(fileName, newFormID, false);
+  hasMesh := CopyResource(GetNPCFaceGenRelPath(e, true), newMeshPath);
+  if hasMesh then begin
+    // Optional: without it, the .nif FaceTint path resolves to the vanilla file
+    CopyResource(GetNPCFaceGenRelPath(e, false), newTexturePath);
+  end
+  else begin
+    AddMessage('  No FaceGen: only race, gender, voice and skin changes will be kept.');
+    Inc(noFaceGenCount);
   end;
 
   Remove(e);
@@ -288,8 +229,8 @@ procedure IsolatorFinalize;
 var
   i: integer;
 begin
-  AddMessage('Isolation: ' + IntToStr(isolatedCount) + ' isolated, ' + IntToStr(removedCount) +
-    ' removed, ' + IntToStr(slSkipped.Count) + ' skipped.');
+  AddMessage('Isolation: ' + IntToStr(isolatedCount) + ' isolated (' + IntToStr(noFaceGenCount) +
+    ' without FaceGen), ' + IntToStr(slSkipped.Count) + ' skipped.');
   for i := 0 to slSkipped.Count - 1 do
     AddMessage('  Skipped: ' + slSkipped[i]);
   slSkipped.Free;
