@@ -10,7 +10,8 @@
      - Other NPCs -> SkyPatcher npc rules, or Recast when selected and able to
        apply every change (face required, no race change).
 
-   Run it on the replacer plugin. Integration mode first isolates the NPC
+   Run it on one or more replacer plugins (one config file set per plugin,
+   same prefix for all). Integration mode first isolates the NPC
    overrides (AP_Isolator), otherwise the plugin must already be isolated
    (replacer EditorIDs "<prefix>_<original EditorID>").
 
@@ -33,9 +34,12 @@ const
   USE_FORM_ID = true;
 
 var
-  slSkyPatcher, slRecast, slLeveledLists, LVLNMap: TStringList;
+  // Config buffers per plugin: Strings = plugin name, Objects = TStringList
+  mapSkyPatcher, mapRecast, mapLeveledLists: TStringList;
+  // Buffers of the plugin being processed
+  slSkyPatcher, slRecast, slLeveledLists: TStringList;
+  LVLNMap: TStringList;
   callIsolator, useRecast: boolean;
-  replacerFileName: string;
   llCount, spCount, recastCount, unchangedCount: integer;
 
 function Initialize: integer;
@@ -44,9 +48,9 @@ var
 begin
   Result := 0;
 
-  slSkyPatcher   := TStringList.Create;
-  slRecast       := TStringList.Create;
-  slLeveledLists := TStringList.Create;
+  mapSkyPatcher   := TStringList.Create;
+  mapRecast       := TStringList.Create;
+  mapLeveledLists := TStringList.Create;
   LVLNMap        := nil;
   llCount        := 0;
   spCount        := 0;
@@ -83,6 +87,28 @@ begin
     end;
 
   LVLNMap := BuildLVLNMap(USE_FORM_ID);
+end;
+
+function GetPluginBuffer(map: TStringList; const pluginName: string): TStringList;
+var
+  idx: integer;
+begin
+  idx := map.IndexOf(pluginName);
+  if idx = -1 then begin
+    Result := TStringList.Create;
+    map.AddObject(pluginName, Result);
+  end
+  else
+    Result := TStringList(map.Objects[idx]);
+end;
+
+procedure FreePluginBuffers(map: TStringList);
+var
+  i: integer;
+begin
+  for i := 0 to map.Count - 1 do
+    TStringList(map.Objects[i]).Free;
+  map.Free;
 end;
 
 // FaceGen of the isolated NPC: just copied by the isolator, or already installed
@@ -162,7 +188,7 @@ end;
 function Process(e: IInterface): integer;
 var
   replacerRecord, targetRecord, skinRecord, raceRecord, voiceRecord: IInterface;
-  replacerEditorID, targetEditorID, changes: string;
+  replacerFileName, replacerEditorID, targetEditorID, changes: string;
   underscorePos, idxLL, placedCount: integer;
   hasFace, skinChanged, raceChanged, sexChanged, voiceChanged: boolean;
 begin
@@ -172,6 +198,9 @@ begin
     Exit;
 
   replacerFileName := GetFileName(GetFile(e));
+  slSkyPatcher   := GetPluginBuffer(mapSkyPatcher, replacerFileName);
+  slRecast       := GetPluginBuffer(mapRecast, replacerFileName);
+  slLeveledLists := GetPluginBuffer(mapLeveledLists, replacerFileName);
 
   replacerRecord := e;
   if callIsolator then begin
@@ -254,9 +283,53 @@ begin
   end;
 end;
 
+function GetRecastManifest(const pluginName: string): TStringList;
+begin
+  Result := TStringList.Create;
+  Result.Add('[manifest]');
+  Result.Add('name = "' + pluginName + '"');
+  Result.Add('priority = 100');
+  Result.Add('api_version = 1');
+  Result.Add('');
+end;
+
+// Saves every non-empty buffer of the map, one file per plugin
+procedure SaveBuffers(map: TStringList; const saveDir, fileExt, saveLabel: string; toDefaultPath: boolean);
+var
+  i: integer;
+  header: TStringList;
+begin
+  for i := 0 to map.Count - 1 do
+    if TStringList(map.Objects[i]).Count > 0 then begin
+      header := nil;
+      if fileExt = '.toml' then
+        header := GetRecastManifest(map[i]);
+      try
+        if toDefaultPath then
+          WriteExportFile(TStringList(map.Objects[i]), header, saveDir + map[i] + fileExt)
+        else
+          SaveExportList(TStringList(map.Objects[i]), header, saveDir, map[i], fileExt, saveLabel + ' (' + map[i] + ')');
+      finally
+        if Assigned(header) then
+          header.Free;
+      end;
+    end;
+end;
+
+function CountFiles(map: TStringList): integer;
+var
+  i: integer;
+begin
+  Result := 0;
+  for i := 0 to map.Count - 1 do
+    if TStringList(map.Objects[i]).Count > 0 then
+      Inc(Result);
+end;
+
 function Finalize: integer;
 var
-  recastManifest: TStringList;
+  fileCount, userChoice: integer;
+  toDefaultPath: boolean;
 begin
   Result := 0;
 
@@ -266,35 +339,34 @@ begin
   AddMessage('Leveled lists: ' + IntToStr(llCount) + ', SkyPatcher: ' + IntToStr(spCount) +
     ', Recast: ' + IntToStr(recastCount) + ', no change: ' + IntToStr(unchangedCount) + '.');
 
-  if slRecast.Count > 0 then begin
-    recastManifest := TStringList.Create;
-    try
-      recastManifest.Add('[manifest]');
-      recastManifest.Add('name = "' + replacerFileName + '"');
-      recastManifest.Add('priority = 100');
-      recastManifest.Add('api_version = 1');
-      recastManifest.Add('');
-      SaveExportList(slRecast, recastManifest,
-        DataPath + OUTPUT_ROOT + '\SKSE\Plugins\Recast\Patches\', replacerFileName, '.toml',
-        'Recast NPC config');
-    finally
-      recastManifest.Free;
-    end;
+  // Several files: one confirmation instead of one per file
+  fileCount := CountFiles(mapRecast) + CountFiles(mapSkyPatcher) + CountFiles(mapLeveledLists);
+  toDefaultPath := false;
+  userChoice := mrNo;
+  if fileCount > 1 then
+    userChoice := MessageDlg(
+      IntToStr(fileCount) + ' config files to save in:' + #13#10 +
+      DataPath + OUTPUT_ROOT + '\SKSE\Plugins\' + #13#10 + #13#10 +
+      'Yes: Save all to their default path' + #13#10 +
+      'No: Confirm each file' + #13#10 +
+      'Cancel: Do not save',
+      mtConfirmation, [mbYes, mbNo, mbCancel], 0);
+
+  if userChoice = mrCancel then
+    AddMessage('Save cancelled by user.')
+  else begin
+    toDefaultPath := userChoice = mrYes;
+    SaveBuffers(mapRecast, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\Recast\Patches\', '.toml',
+      'Recast NPC config', toDefaultPath);
+    SaveBuffers(mapSkyPatcher, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\npc\', '.ini',
+      'SkyPatcher NPC config', toDefaultPath);
+    SaveBuffers(mapLeveledLists, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\leveledList\', '.ini',
+      'SkyPatcher leveled list config', toDefaultPath);
   end;
 
-  if slSkyPatcher.Count > 0 then
-    SaveExportList(slSkyPatcher, nil,
-      DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\npc\', replacerFileName, '.ini',
-      'SkyPatcher NPC config');
-
-  if slLeveledLists.Count > 0 then
-    SaveExportList(slLeveledLists, nil,
-      DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\leveledList\', replacerFileName, '.ini',
-      'SkyPatcher leveled list config');
-
-  slSkyPatcher.Free;
-  slRecast.Free;
-  slLeveledLists.Free;
+  FreePluginBuffers(mapSkyPatcher);
+  FreePluginBuffers(mapRecast);
+  FreePluginBuffers(mapLeveledLists);
   FreeLVLNMap(LVLNMap);
 end;
 

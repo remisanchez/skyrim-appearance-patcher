@@ -27,6 +27,7 @@ function GetNPCFaceGenRelPath(npc: IInterface; isMesh: Boolean): string;
 function ResourceExists(const relPath: string): Boolean;
 function CopyResource(const relPath, outPath: string): Boolean;
 procedure SaveListToFile(sl: TStringList; const fileName: string);
+function WriteExportFile(sl, header: TStringList; const fileName: string): Boolean;
 function SaveExportList(sl, header: TStringList; const saveDir, fileBaseName, fileExt, saveLabel: string): Boolean;
 
 implementation

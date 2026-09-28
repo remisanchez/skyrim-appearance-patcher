@@ -1,7 +1,7 @@
 {
   AP_Isolator.pas
   Isolation phase, based on the SkyPatcher RDF NPC Replacer Converter v2
-  PreProcessor (mmsk4989): each NPC override of the replacer plugin is copied
+  PreProcessor (mmsk4989): each NPC override of the replacer plugins is copied
   as a new record "<prefix>_<EditorID>", its FaceGen files (loose or archived)
   are copied to the new FormID, then the override is removed.
   FaceGen .nif files are copied as is: they keep pointing to the original
@@ -28,8 +28,8 @@ const
   EXT_ESL_VERSION     = 1.71;
 
 var
-  prefix, firstFileName: string;
-  fileChecked: boolean;
+  prefix: string;
+  slCheckedFiles: TStringList;
   isolatedCount, noFaceGenCount: integer;
   slSkipped: TStringList;
 
@@ -113,8 +113,7 @@ var
 begin
   Result := 0;
   prefix := '';
-  firstFileName := '';
-  fileChecked := false;
+  slCheckedFiles := TStringList.Create;
   isolatedCount := 0;
   noFaceGenCount := 0;
   slSkipped := TStringList.Create;
@@ -148,43 +147,54 @@ begin
   AddMessage('Prefix: ' + prefix);
 end;
 
+// Plugin checks, once per plugin. Returns false if its records must be skipped.
+function CheckPlugin(f: IInterface): boolean;
+var
+  fileName: string;
+  eslFlag: boolean;
+begin
+  fileName := GetFileName(f);
+  if slCheckedFiles.IndexOfName(fileName) <> -1 then begin
+    Result := slCheckedFiles.Values[fileName] = 'ok';
+    Exit;
+  end;
+
+  Result := true;
+  if IsOfficialMaster(fileName) then begin
+    AddMessage('Skipped plugin, official master: ' + fileName);
+    Result := false;
+  end
+  else begin
+    eslFlag := GetElementNativeValues(ElementByIndex(f, 0), 'Record Header\Record Flags\ESL');
+    if eslFlag then
+      if ESLFlaggedPluginTest(f) then begin
+        AddMessage('Skipped plugin: ' + fileName);
+        Result := false;
+      end;
+  end;
+
+  if Result then
+    slCheckedFiles.Values[fileName] := 'ok'
+  else
+    slCheckedFiles.Values[fileName] := 'skipped';
+end;
+
 // Returns -1 to abort the script. newRecord is only assigned when the NPC was isolated.
 function IsolatorProcess(e: IInterface; var newRecord: IInterface; const outputRoot: string): integer;
 var
   f: IInterface;
   fileName, newFormID, recordID, newMeshPath, newTexturePath: string;
-  hasMesh, eslFlag: boolean;
+  hasMesh: boolean;
 begin
   Result := 0;
   newRecord := nil;
   f := GetFile(e);
   fileName := GetFileName(f);
 
-  // Plugin checks, on the first record only
-  if not fileChecked then begin
-    if IsOfficialMaster(fileName) then begin
-      AddMessage(fileName + ' is an official master and must not be edited.');
-      Result := -1;
-      Exit;
-    end;
-
-    eslFlag := GetElementNativeValues(ElementByIndex(f, 0), 'Record Header\Record Flags\ESL');
-    if eslFlag then
-      if ESLFlaggedPluginTest(f) then begin
-        Result := -1;
-        Exit;
-      end;
-
-    firstFileName := fileName;
-    fileChecked := true;
-  end;
-
-  if fileName <> firstFileName then begin
-    AddMessage('Skipped, not in ' + firstFileName + ': ' + Name(e));
-    Exit;
-  end;
-
   if Signature(e) <> 'NPC_' then
+    Exit;
+
+  if not CheckPlugin(f) then
     Exit;
 
   // Records added by the replacer (including previously isolated NPCs)
@@ -237,6 +247,7 @@ begin
   for i := 0 to slSkipped.Count - 1 do
     AddMessage('  Skipped: ' + slSkipped[i]);
   slSkipped.Free;
+  slCheckedFiles.Free;
 end;
 
 end.
