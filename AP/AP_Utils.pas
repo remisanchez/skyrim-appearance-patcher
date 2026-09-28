@@ -337,23 +337,35 @@ begin
   Result := FileExists(DataPath + relPath) or (FindResourceContainer(relPath) <> '');
 end;
 
-// Copies a loose or archived file. Returns true if outPath exists afterwards.
+// Copies a loose or archived file, as the v2 PreProcessor: the result of the
+// copy is not used (unreliable in xEdit scripts), only the source is checked.
+// Returns true if the source exists.
 function CopyResource(const relPath, outPath: string): Boolean;
 var
-  container: string;
+  container, tempDir: string;
 begin
+  Result := false;
   if not DirectoryExists(ExtractFilePath(outPath)) then
     ForceDirectories(ExtractFilePath(outPath));
 
-  if FileExists(DataPath + relPath) then
-    CopyFile(PChar(DataPath + relPath), PChar(outPath), False)
+  if FileExists(DataPath + relPath) then begin
+    CopyFile(PChar(DataPath + relPath), PChar(outPath), False);
+    AddMessage('  Copied: ' + relPath);
+    Result := true;
+  end
   else begin
     container := FindResourceContainer(relPath);
-    if container <> '' then
-      ResourceCopy(container, relPath, outPath);
+    if container <> '' then begin
+      // ResourceCopy writes to <folder> + relPath: extract next to outPath, then rename
+      tempDir := ExtractFilePath(outPath) + '_extract\';
+      ResourceCopy(container, relPath, tempDir);
+      RenameFile(PChar(tempDir + relPath), PChar(outPath));
+      AddMessage('  Extracted: ' + relPath + ' from ' + ExtractFileName(container));
+      Result := true;
+    end
+    else
+      AddMessage('  Not found: ' + relPath);
   end;
-
-  Result := FileExists(outPath);
 end;
 
 // .toml files must be UTF-8 (Recast). xEdit only exposes SaveToFile(fileName)

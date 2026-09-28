@@ -121,6 +121,8 @@ voice = "0x2F7C4~Skyrim.esm"
 
 Recast files are saved in UTF-8 (with BOM), so names with accents are read correctly.
 
+FaceGen files extracted from a BSA go through an `_extract` folder next to their destination. The empty `_extract` folders left behind can be deleted.
+
 ## Save games
 
 Isolation creates new NPC records, and **their FormIDs are part of your save games**: generic NPCs already spawned from leveled lists are stored in the save with a copy of their NPC data.

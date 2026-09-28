@@ -116,6 +116,11 @@ function HasFaceGen(npc: IInterface): boolean;
 var
   relPath: string;
 begin
+  if callIsolator then
+    if IsolatedWithFaceGen(EditorID(npc)) then begin
+      Result := true;
+      Exit;
+    end;
   relPath := GetNPCFaceGenRelPath(npc, true);
   Result := FileExists(DataPath + OUTPUT_ROOT + '\' + relPath) or DataResourceExists(relPath);
 end;

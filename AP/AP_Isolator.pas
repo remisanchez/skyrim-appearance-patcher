@@ -21,6 +21,7 @@ interface
 function IsolatorInitialize: integer;
 function IsolatorProcess(e: IInterface; var newRecord: IInterface; const outputRoot: string): integer;
 procedure IsolatorFinalize;
+function IsolatedWithFaceGen(const editorID: string): boolean;
 
 implementation
 
@@ -35,6 +36,8 @@ var
   prefix: string;
   appearanceOnly: boolean;
   slCheckedFiles: TStringList;
+  // EditorIDs of the NPCs isolated with a FaceGen during this run
+  slWithFaceGen: TStringList;
   isolatedCount, noFaceGenCount: integer;
   slSkipped: TStringList;
 
@@ -267,6 +270,8 @@ begin
   Result := 0;
   prefix := '';
   slCheckedFiles := TStringList.Create;
+  slWithFaceGen := TStringList.Create;
+  slWithFaceGen.Sorted := true;
   isolatedCount := 0;
   noFaceGenCount := 0;
   slSkipped := TStringList.Create;
@@ -398,11 +403,11 @@ begin
   // FaceGen of the original NPC, as provided by the replacer
   newMeshPath    := DataPath + outputRoot + '\' + GetFaceGenRelPath(fileName, newFormID, true);
   newTexturePath := DataPath + outputRoot + '\' + GetFaceGenRelPath(fileName, newFormID, false);
+  // Both files are copied independently, as in the v2 PreProcessor
   hasMesh := CopyResource(GetNPCFaceGenRelPath(e, true), newMeshPath);
-  if hasMesh then begin
-    // Optional: without it, the .nif FaceTint path resolves to the vanilla file
-    CopyResource(GetNPCFaceGenRelPath(e, false), newTexturePath);
-  end
+  CopyResource(GetNPCFaceGenRelPath(e, false), newTexturePath);
+  if hasMesh then
+    slWithFaceGen.Add(EditorID(newRecord))
   else begin
     AddMessage('  No FaceGen: only race, gender, voice and skin changes will be kept.');
     Inc(noFaceGenCount);
@@ -429,6 +434,13 @@ begin
     AddMessage('  Skipped: ' + slSkipped[i]);
   slSkipped.Free;
   slCheckedFiles.Free;
+  slWithFaceGen.Free;
+end;
+
+// FaceGen copied during this run. Needed because FileExists may not see it yet under MO2.
+function IsolatedWithFaceGen(const editorID: string): boolean;
+begin
+  Result := slWithFaceGen.IndexOf(editorID) <> -1;
 end;
 
 end.
