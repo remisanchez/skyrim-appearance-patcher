@@ -1,1 +1,1 @@
-# Appareance Patcher - xEdit Script
+# Appearance Patcher - xEdit Script
