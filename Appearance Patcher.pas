@@ -67,8 +67,8 @@ begin
 
   userChoice := MessageDlg(
     'Framework:' + #13#10 +
-    'Yes = SkyPatcher' + #13#10 +
-    'No = Recast + SkyPatcher' + #13#10 + #13#10 +
+    'Yes = Recast + SkyPatcher' + #13#10 +
+    'No = SkyPatcher' + #13#10 + #13#10 +
     'With Recast, SkyPatcher still handles leveled lists and the changes' + #13#10 +
     'Recast cannot apply (race, NPCs without FaceGen).',
     mtConfirmation, [mbYes, mbNo, mbCancel], 0);
@@ -77,7 +77,7 @@ begin
     Result := -1;
     Exit;
   end;
-  useRecast := userChoice = mrNo;
+  useRecast := userChoice = mrYes;
 
   if callIsolator then
     if IsolatorInitialize = -1 then begin

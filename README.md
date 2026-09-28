@@ -40,7 +40,7 @@ Edit Scripts\
 3. Select one or more replacer plugins, right-click, **Apply Script**, then pick **Appearance Patcher**.
 4. Answer the questions:
    - **Integration Mode**: *Yes* isolates the NPCs, then generates the configs. *No* only generates the configs, for plugins already isolated.
-   - **Framework**: *Yes* = SkyPatcher, *No* = Recast + SkyPatcher.
+   - **Framework**: *Yes* = Recast + SkyPatcher, *No* = SkyPatcher.
    - **Prefix** (Integration Mode only): letters and digits, e.g. `RD`. Isolated NPCs are named `RD_<original EditorID>`. The same prefix is used for all selected plugins.
 5. Save the config files when prompted. With several files, a single confirmation saves them all to their default path.
 6. Close SSEEdit and **save the modified plugins**.
