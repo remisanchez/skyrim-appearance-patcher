@@ -28,6 +28,8 @@ const
   ESL_MAX_FORMID      = $FFF;
   ESL_START_FORMID    = $800;
   EXT_ESL_VERSION     = 1.71;
+  // Appearance only mode is hidden until it is tested
+  SHOW_APPEARANCE_ONLY_OPTION = false;
 
 var
   prefix: string;
@@ -297,16 +299,18 @@ begin
 
   AddMessage('Prefix: ' + prefix);
 
-  appearanceOnly := MessageDlg(
-    'Convert the plugins to NPC appearance replacers only?' + #13#10 + #13#10 +
-    'Yes: everything that does not change the look of NPCs is REMOVED from the' + #13#10 +
-    'selected plugins: edits of quests, locations, cells, leveled lists and other' + #13#10 +
-    'records, new classes, outfits... Isolated NPCs keep the original NPC data' + #13#10 +
-    '(name, class, outfit, AI, inventory...): only their appearance comes from' + #13#10 +
-    'the replacer (face, skin, race, gender, voice, height, weight).' + #13#10 + #13#10 +
-    'No: the rest of the plugins is kept as is.' + #13#10 + #13#10 +
-    'Make a backup of the plugins before saving them.',
-    mtWarning, [mbYes, mbNo], 0) = mrYes;
+  appearanceOnly := false;
+  if SHOW_APPEARANCE_ONLY_OPTION then
+    appearanceOnly := MessageDlg(
+      'Convert the plugins to NPC appearance replacers only?' + #13#10 + #13#10 +
+      'Yes: everything that does not change the look of NPCs is REMOVED from the' + #13#10 +
+      'selected plugins: edits of quests, locations, cells, leveled lists and other' + #13#10 +
+      'records, new classes, outfits... Isolated NPCs keep the original NPC data' + #13#10 +
+      '(name, class, outfit, AI, inventory...): only their appearance comes from' + #13#10 +
+      'the replacer (face, skin, race, gender, voice, height, weight).' + #13#10 + #13#10 +
+      'No: the rest of the plugins is kept as is.' + #13#10 + #13#10 +
+      'Make a backup of the plugins before saving them.',
+      mtWarning, [mbYes, mbNo], 0) = mrYes;
   if appearanceOnly then
     AddMessage('Appearance only mode.');
 end;
