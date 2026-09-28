@@ -10,6 +10,7 @@ interface
 
 function GetBoolSLValue(const s: string): Boolean;
 function ShowCheckboxForm(const options, disableOpts: TStringList; caption: string): Boolean;
+function AskInputDialog(const caption, prompt: string; var resultStr: string): Boolean;
 function EditorIDInputValidation(const s: string): Boolean;
 function IsOfficialMaster(const fileName: string): Boolean;
 function PadLeftZero(const s: string; targetLength: Integer): string;
@@ -100,18 +101,76 @@ begin
   end;
 end;
 
-// Letters and digits only
+// Text input dialog. InputQuery does not return the typed text in xEdit scripts.
+// Returns false if cancelled.
+function AskInputDialog(const caption, prompt: string; var resultStr: string): Boolean;
+var
+  form: TForm;
+  lbl: TLabel;
+  edt: TEdit;
+  btnOK, btnCancel: TButton;
+begin
+  Result := False;
+
+  form := TForm.Create(nil);
+  try
+    form.Caption := caption;
+    form.ClientWidth := 400;
+    form.ClientHeight := 130;
+    form.Position := poScreenCenter;
+    form.BorderStyle := bsDialog;
+
+    lbl := TLabel.Create(form);
+    lbl.Parent := form;
+    lbl.Left := 10;
+    lbl.Top := 10;
+    lbl.Width := 380;
+    lbl.Height := 36;
+    lbl.AutoSize := false;
+    lbl.WordWrap := true;
+    lbl.Caption := prompt;
+
+    edt := TEdit.Create(form);
+    edt.Parent := form;
+    edt.Left := 10;
+    edt.Top := 52;
+    edt.Width := 380;
+    edt.Text := resultStr;
+
+    btnOK := TButton.Create(form);
+    btnOK.Parent := form;
+    btnOK.Caption := 'OK';
+    btnOK.ModalResult := mrOk;
+    btnOK.Width := 75;
+    btnOK.Top := 90;
+    btnOK.Left := (form.ClientWidth div 2) - btnOK.Width - 10;
+
+    btnCancel := TButton.Create(form);
+    btnCancel.Parent := form;
+    btnCancel.Caption := 'Cancel';
+    btnCancel.ModalResult := mrCancel;
+    btnCancel.Width := 75;
+    btnCancel.Top := 90;
+    btnCancel.Left := (form.ClientWidth div 2) + 10;
+
+    if form.ShowModal = mrOk then begin
+      Result := True;
+      resultStr := edt.Text;
+    end;
+  finally
+    form.Free;
+  end;
+end;
+
+// Letters and digits only. Uses Pos/Copy: char comparisons are unreliable in xEdit scripts.
 function EditorIDInputValidation(const s: string): Boolean;
 var
   i: Integer;
-  ch: Char;
 begin
-  Result := s <> '';
-  for i := 1 to Length(s) do begin
-    ch := s[i];
-    if not (((ch >= 'A') and (ch <= 'Z')) or ((ch >= 'a') and (ch <= 'z')) or ((ch >= '0') and (ch <= '9'))) then
+  Result := Length(s) > 0;
+  for i := 1 to Length(s) do
+    if Pos(Copy(s, i, 1), 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789') = 0 then
       Result := false;
-  end;
 end;
 
 function IsOfficialMaster(const fileName: string): Boolean;

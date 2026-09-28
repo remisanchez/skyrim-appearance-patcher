@@ -131,6 +131,7 @@ function IsolatorInitialize: integer;
 var
   opts, disableOpts: TStringList;
   inputOK, canceled, valid: boolean;
+  inputValue: string;
 begin
   Result := 0;
   prefix := '';
@@ -160,16 +161,19 @@ begin
   // No Break/Exit inside repeat: known xEdit parser issue
   canceled := false;
   valid := false;
+  inputValue := '';
   repeat
-    inputOK := InputQuery('Editor ID prefix',
-      'Letters (a-z, A-Z) and digits (0-9) only.' + #13#10 + '"_" is added after the prefix:', prefix);
+    inputOK := AskInputDialog('Editor ID prefix',
+      'Letters (a-z, A-Z) and digits (0-9) only.' + #13#10 + '"_" is added after the prefix:', inputValue);
+    inputValue := Trim(inputValue);
     if not inputOK then
       canceled := true
-    else if EditorIDInputValidation(prefix) then
+    else if EditorIDInputValidation(inputValue) then
       valid := true
     else
-      MessageDlg('Invalid prefix. Use letters and digits only.', mtWarning, [mbOK], 0);
+      MessageDlg('Invalid prefix "' + inputValue + '". Use letters and digits only.', mtWarning, [mbOK], 0);
   until canceled or valid;
+  prefix := inputValue;
 
   if canceled then begin
     AddMessage('Prefix input was canceled.');
