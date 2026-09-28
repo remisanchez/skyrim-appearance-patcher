@@ -6,6 +6,8 @@
   are copied to the new FormID, then the override is removed.
   FaceGen .nif files are copied as is: they keep pointing to the original
   FaceTint path. Use Traits overrides are left unchanged.
+  Plugins can be flagged as ESL before isolation, so that new records get
+  ESL FormIDs directly.
 }
 
 unit AP_Isolator;
@@ -21,88 +23,84 @@ procedure IsolatorFinalize;
 implementation
 
 const
-  OLD_ESL_MAX_RECORDS = 2047;
-  NEW_ESL_MAX_RECORDS = 4095;
   ESL_MAX_FORMID      = $FFF;
   ESL_START_FORMID    = $800;
   EXT_ESL_VERSION     = 1.71;
 
 var
   prefix: string;
+  convertToESL: boolean;
   slCheckedFiles: TStringList;
   isolatedCount, noFaceGenCount: integer;
   slSkipped: TStringList;
 
-function CountNPCRecords(f: IInterface): integer;
+// NPC overrides that will be isolated, i.e. new records to create
+function CountNPCsToIsolate(f: IInterface): integer;
 var
-  group: IInterface;
+  i: integer;
+  group, rec: IInterface;
 begin
   Result := 0;
   group := GroupBySignature(f, 'NPC_');
-  if Assigned(group) then
-    Result := ElementCount(group);
+  if not Assigned(group) then
+    Exit;
+  for i := 0 to ElementCount(group) - 1 do begin
+    rec := ElementByIndex(group, i);
+    if not IsMaster(rec) and not IsNPCUsingTraits(rec) then
+      Inc(Result);
+  end;
 end;
 
-// ESL flagged plugins: checks that enough FormIDs are left for the new records.
-// Returns true if the process must stop.
-function ESLFlaggedPluginTest(f: IInterface): boolean;
+// ESL FormID range: 0x800-0xFFF, or 0x001-0xFFF with header 1.71
+function GetESLFirstObjectID(f: IInterface): Cardinal;
+begin
+  Result := ESL_START_FORMID;
+  if GetElementNativeValues(ElementByIndex(f, 0), 'HEDR\Version') >= EXT_ESL_VERSION then
+    Result := 1;
+end;
+
+// Checks that the plugin can hold its new records plus the isolated NPCs as an ESL.
+// reason is set when it cannot.
+function CanBeESL(f: IInterface; var reason: string): boolean;
+var
+  i, newRecords, toIsolate: integer;
+  firstID, objectID: Cardinal;
+  rec: IInterface;
+begin
+  reason := '';
+  firstID := GetESLFirstObjectID(f);
+  newRecords := 0;
+
+  for i := 0 to RecordCount(f) - 1 do begin
+    rec := RecordByIndex(f, i);
+    if Assigned(rec) and (Signature(rec) <> 'TES4') and IsMaster(rec) then begin
+      Inc(newRecords);
+      objectID := FormID(rec) and $FFFFFF;
+      if (reason = '') and ((objectID < firstID) or (objectID > ESL_MAX_FORMID)) then
+        reason := 'record ' + Name(rec) + ' is outside the ESL FormID range, compact FormIDs first';
+    end;
+  end;
+
+  toIsolate := CountNPCsToIsolate(f);
+  if (reason = '') and (newRecords + toIsolate > ESL_MAX_FORMID - firstID + 1) then
+    reason := IntToStr(newRecords) + ' new records + ' + IntToStr(toIsolate) + ' NPCs to isolate exceed the ESL limit of ' +
+      IntToStr(ESL_MAX_FORMID - firstID + 1);
+
+  Result := reason = '';
+end;
+
+// Puts Next Object ID back in the ESL range. xEdit skips used FormIDs by itself,
+// so no restart is needed.
+procedure FixESLNextObjectID(f: IInterface);
 var
   header: IInterface;
-  recordNum, maxRecordNum, npcRecordNum, nextObjectID, usedFormIDs, remainingFormIDs: Cardinal;
-  headerVer: Float;
-  invalidObjectID: boolean;
+  nextObjectID: Cardinal;
 begin
-  Result := false;
   header := ElementByIndex(f, 0);
-
-  recordNum    := RecordCount(f);
-  headerVer    := GetElementNativeValues(header, 'HEDR\Version');
   nextObjectID := GetElementNativeValues(header, 'HEDR\Next Object ID');
-  npcRecordNum := CountNPCRecords(f);
-
-  // Header 1.71 (extended ESL) also allows FormIDs below 0x800
-  if headerVer < EXT_ESL_VERSION then begin
-    maxRecordNum := OLD_ESL_MAX_RECORDS;
-    invalidObjectID := (nextObjectID < ESL_START_FORMID) or (nextObjectID > ESL_MAX_FORMID);
-    if not invalidObjectID then
-      usedFormIDs := nextObjectID - ESL_START_FORMID
-    else
-      usedFormIDs := nextObjectID;
-  end
-  else begin
-    maxRecordNum := NEW_ESL_MAX_RECORDS;
-    invalidObjectID := nextObjectID > ESL_MAX_FORMID;
-    if nextObjectID < ESL_START_FORMID then
-      usedFormIDs := nextObjectID + ESL_START_FORMID
-    else
-      usedFormIDs := nextObjectID - ESL_START_FORMID;
-  end;
-  remainingFormIDs := maxRecordNum - usedFormIDs;
-
-  AddMessage('ESL plugin: ' + IntToStr(recordNum) + ' records, ' + IntToStr(npcRecordNum) +
-    ' NPCs, next object ID ' + IntToHex(nextObjectID and $FFFFFF, 1) +
-    ', about ' + IntToStr(remainingFormIDs) + ' FormIDs left.');
-
-  if invalidObjectID then begin
-    AddMessage('Aborted: Next Object ID is invalid.');
-    if MessageDlg('Next Object ID is invalid. Reset it to 800?', mtConfirmation, [mbOK, mbCancel], 0) = mrOK then begin
-      SetElementNativeValues(header, 'HEDR\Next Object ID', ESL_START_FORMID);
-      MessageDlg('Next Object ID has been reset to 800. Check the file header, then run the script again.', mtInformation, [mbOK], 0);
-    end;
-    Result := true;
-  end
-  else if (remainingFormIDs > 0) and (npcRecordNum > remainingFormIDs) then begin
-    AddMessage('Aborted: not enough FormIDs left.');
-    if MessageDlg('Not enough FormIDs left. Reset Next Object ID to 800?', mtConfirmation, [mbOK, mbCancel], 0) = mrOK then begin
-      SetElementNativeValues(header, 'HEDR\Next Object ID', ESL_START_FORMID);
-      MessageDlg('Next Object ID has been reset to 800. Check the file header, then run the script again.', mtInformation, [mbOK], 0);
-    end;
-    Result := true;
-  end
-  else if recordNum >= maxRecordNum then begin
-    AddMessage('Aborted: the plugin holds ' + IntToStr(recordNum) + ' records, the ESL limit is ' + IntToStr(maxRecordNum) + '.');
-    AddMessage('Remove the ESL flag while running the script, then set it again.');
-    Result := true;
+  if (nextObjectID < GetESLFirstObjectID(f)) or (nextObjectID > ESL_MAX_FORMID) then begin
+    SetElementNativeValues(header, 'HEDR\Next Object ID', GetESLFirstObjectID(f));
+    AddMessage('  Next Object ID reset to ' + IntToHex(GetESLFirstObjectID(f), 3) + '.');
   end;
 end;
 
@@ -145,12 +143,18 @@ begin
   end;
 
   AddMessage('Prefix: ' + prefix);
+
+  convertToESL := MessageDlg(
+    'Flag the replacer plugins as ESL when possible?' + #13#10 + #13#10 +
+    'The isolated NPCs then get ESL FormIDs directly: no need to compact' + #13#10 +
+    'FormIDs and run the script again afterwards.',
+    mtConfirmation, [mbYes, mbNo], 0) = mrYes;
 end;
 
 // Plugin checks, once per plugin. Returns false if its records must be skipped.
 function CheckPlugin(f: IInterface): boolean;
 var
-  fileName: string;
+  fileName, reason: string;
   eslFlag: boolean;
 begin
   fileName := GetFileName(f);
@@ -166,11 +170,23 @@ begin
   end
   else begin
     eslFlag := GetElementNativeValues(ElementByIndex(f, 0), 'Record Header\Record Flags\ESL');
-    if eslFlag then
-      if ESLFlaggedPluginTest(f) then begin
-        AddMessage('Skipped plugin: ' + fileName);
+    if eslFlag then begin
+      if CanBeESL(f, reason) then
+        FixESLNextObjectID(f)
+      else begin
+        AddMessage('Skipped plugin ' + fileName + ': ' + reason + '.');
         Result := false;
       end;
+    end
+    else if convertToESL then begin
+      if CanBeESL(f, reason) then begin
+        SetIsESL(f, true);
+        FixESLNextObjectID(f);
+        AddMessage('Flagged as ESL: ' + fileName);
+      end
+      else
+        AddMessage('Not flagged as ESL, ' + fileName + ': ' + reason + '.');
+    end;
   end;
 
   if Result then
