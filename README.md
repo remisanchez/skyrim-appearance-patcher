@@ -167,6 +167,7 @@ The scripts run in JvInterpreter, which has some quirks:
 - `InputQuery` does not return the typed text: use `AskInputDialog`.
 - `TStrings.SaveToFile` only accepts one argument. UTF-8 is obtained through `TJsonObject.SaveToFile`, then `LoadFromFile` / `SaveToFile` (see `SaveListToFile`).
 - Built-in xEdit functions take precedence over script functions with the same name (e.g. `CanBeESL`, `ResourceExists`). Check new names against `xEdit/JvI/xejviScriptAdapter*.pas` in the xEdit repository.
+- Pass plain variables to `PChar`, never an expression: `CopyFile(PChar(DataPath + relPath), ...)` silently copies nothing.
 - Char comparisons are unreliable: use `Pos` / `Copy`.
 - Avoid `Break` / `Exit` inside `repeat` loops.
 - Errors are often reported at the end of the enclosing `try` block, not at the faulty line.

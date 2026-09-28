@@ -342,25 +342,33 @@ end;
 // Returns true if the source exists.
 function CopyResource(const relPath, outPath: string): Boolean;
 var
-  container, tempDir: string;
+  container, tempDir, srcPath, dstPath, extractedPath: string;
 begin
   Result := false;
-  if not DirectoryExists(ExtractFilePath(outPath)) then
-    ForceDirectories(ExtractFilePath(outPath));
+  // Plain variables for PChar, as in v2 (no expression inside PChar)
+  srcPath := DataPath + relPath;
+  dstPath := outPath;
+  if not DirectoryExists(ExtractFilePath(dstPath)) then
+    ForceDirectories(ExtractFilePath(dstPath));
 
-  if FileExists(DataPath + relPath) then begin
-    CopyFile(PChar(DataPath + relPath), PChar(outPath), False);
-    AddMessage('  Copied: ' + relPath);
+  if FileExists(srcPath) then begin
+    if CopyFile(PChar(srcPath), PChar(dstPath), False) then
+      AddMessage('  Copied: ' + srcPath + ' -> ' + dstPath)
+    else
+      AddMessage('  CopyFile returned false: ' + srcPath + ' -> ' + dstPath);
     Result := true;
   end
   else begin
     container := FindResourceContainer(relPath);
     if container <> '' then begin
       // ResourceCopy writes to <folder> + relPath: extract next to outPath, then rename
-      tempDir := ExtractFilePath(outPath) + '_extract\';
+      tempDir := ExtractFilePath(dstPath) + '_extract\';
+      extractedPath := tempDir + relPath;
       ResourceCopy(container, relPath, tempDir);
-      RenameFile(PChar(tempDir + relPath), PChar(outPath));
-      AddMessage('  Extracted: ' + relPath + ' from ' + ExtractFileName(container));
+      if RenameFile(PChar(extractedPath), PChar(dstPath)) then
+        AddMessage('  Extracted: ' + relPath + ' from ' + container + ' -> ' + dstPath)
+      else
+        AddMessage('  RenameFile returned false: ' + extractedPath + ' -> ' + dstPath);
       Result := true;
     end
     else
