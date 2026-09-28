@@ -8,15 +8,12 @@ unit AP_Utils;
 
 interface
 
-function GetBoolSLValue(const s: string): Boolean;
-function ShowCheckboxForm(const options, disableOpts: TStringList; caption: string): Boolean;
 function AskInputDialog(const caption, prompt: string; var resultStr: string): Boolean;
 function EditorIDInputValidation(const s: string): Boolean;
 function IsOfficialMaster(const fileName: string): Boolean;
 function PadLeftZero(const s: string; targetLength: Integer): string;
 function GetLocalFormIDHex(rec: IInterface): string;
-function GetSkyPatcherID(rec: IInterface; useFormID: Boolean): string;
-function GetRecastID(rec: IInterface; useFormID, padded: Boolean): string;
+function GetSkyPatcherID(rec: IInterface): string;
 function GetLinkedMasterRecord(rec: IInterface; const path: string): IInterface;
 function SameLinkedRecord(a, b: IInterface): Boolean;
 function FindNPCByEditorID(const edid: string): IInterface;
@@ -26,85 +23,10 @@ function GetFaceGenRelPath(const pluginName, formID: string; isMesh: Boolean): s
 function GetNPCFaceGenRelPath(npc: IInterface; isMesh: Boolean): string;
 function DataResourceExists(const relPath: string): Boolean;
 function CopyResource(const relPath, outPath: string): Boolean;
-procedure SaveListToFile(sl: TStringList; const fileName: string);
-function WriteExportFile(sl, header: TStringList; const fileName: string): Boolean;
-function SaveExportList(sl, header: TStringList; const saveDir, fileBaseName, fileExt, saveLabel: string): Boolean;
+function WriteExportFile(sl: TStringList; const fileName: string): Boolean;
+function SaveExportList(sl: TStringList; const saveDir, fileBaseName, saveLabel: string): Boolean;
 
 implementation
-
-function GetBoolSLValue(const s: string): Boolean;
-var
-  value: string;
-begin
-  value := LowerCase(s);
-  Result := (value = 'true') or (value = '1') or (value = 'yes');
-end;
-
-// options: "Caption=True/False" pairs, updated with the user's choices.
-// disableOpts: captions of the options to grey out.
-function ShowCheckboxForm(const options, disableOpts: TStringList; caption: string): Boolean;
-var
-  form: TForm;
-  checklist: TCheckListBox;
-  btnOK, btnCancel: TButton;
-  i: Integer;
-begin
-  Result := False;
-
-  form := TForm.Create(nil);
-  try
-    form.Caption := caption;
-    form.Width := 350;
-    form.Height := 300;
-    form.Position := poScreenCenter;
-    form.BorderStyle := bsDialog;
-
-    checklist := TCheckListBox.Create(form);
-    checklist.Parent := form;
-    checklist.Align := alTop;
-    checklist.Height := 200;
-
-    for i := 0 to options.Count - 1 do begin
-      checklist.Items.Add(options.Names[i]);
-
-      if GetBoolSLValue(options.ValueFromIndex[i]) then
-        checklist.Checked[i] := true;
-
-      // ItemEnabled is inverted in xEdit: true disables the item
-      if disableOpts.IndexOf(options.Names[i]) >= 0 then begin
-        checklist.Checked[i] := false;
-        checklist.ItemEnabled[i] := true;
-      end;
-    end;
-
-    btnOK := TButton.Create(form);
-    btnOK.Parent := form;
-    btnOK.Caption := 'OK';
-    btnOK.ModalResult := mrOk;
-    btnOK.Width := 75;
-    btnOK.Top := checklist.Top + checklist.Height + 10;
-    btnOK.Left := (form.ClientWidth div 2) - btnOK.Width - 10;
-
-    btnCancel := TButton.Create(form);
-    btnCancel.Parent := form;
-    btnCancel.Caption := 'Cancel';
-    btnCancel.ModalResult := mrCancel;
-    btnCancel.Width := 75;
-    btnCancel.Top := btnOK.Top;
-    btnCancel.Left := (form.ClientWidth div 2) + 10;
-
-    if form.ShowModal = mrOk then begin
-      Result := True;
-      for i := 0 to checklist.Items.Count - 1 do
-        if checklist.Checked[i] then
-          options.ValueFromIndex[i] := 'True'
-        else
-          options.ValueFromIndex[i] := 'False';
-    end;
-  finally
-    form.Free;
-  end;
-end;
 
 // Text input dialog. InputQuery does not return the typed text in xEdit scripts.
 // Returns false if cancelled.
@@ -206,8 +128,8 @@ begin
   Result := IntToHex(FormID(MasterOrSelf(rec)) and $FFFFFF, 1);
 end;
 
-// SkyPatcher: "Plugin.esp|13BB7" or EditorID
-function GetSkyPatcherID(rec: IInterface; useFormID: Boolean): string;
+// SkyPatcher: "Plugin.esp|13BB7"
+function GetSkyPatcherID(rec: IInterface): string;
 var
   m: IInterface;
 begin
@@ -216,32 +138,7 @@ begin
     Exit;
 
   m := MasterOrSelf(rec);
-  if useFormID then
-    Result := GetFileName(GetFile(m)) + '|' + GetLocalFormIDHex(m)
-  else
-    Result := EditorID(m);
-end;
-
-// Recast: "0x00013BB7~Plugin.esp" (padded) or "0x13BB7~Plugin.esp", or EditorID
-function GetRecastID(rec: IInterface; useFormID, padded: Boolean): string;
-var
-  m: IInterface;
-  localID: string;
-begin
-  Result := '';
-  if not Assigned(rec) then
-    Exit;
-
-  m := MasterOrSelf(rec);
-  if not useFormID then begin
-    Result := EditorID(m);
-    Exit;
-  end;
-
-  localID := GetLocalFormIDHex(m);
-  if padded then
-    localID := PadLeftZero(localID, 8);
-  Result := '0x' + localID + '~' + GetFileName(GetFile(m));
+  Result := GetFileName(GetFile(m)) + '|' + GetLocalFormIDHex(m);
 end;
 
 // Master record linked by the element at path, or nil
@@ -376,57 +273,9 @@ begin
   end;
 end;
 
-// .toml files must be UTF-8 (Recast). xEdit only exposes SaveToFile(fileName)
-// on TStrings, which reuses the encoding detected by LoadFromFile: a UTF-8
-// file with BOM is created through TJsonObject, loaded, then overwritten.
-procedure SaveListToFile(sl: TStringList; const fileName: string);
-var
-  json: TJsonObject;
-  utf8List: TStringList;
-begin
-  if not SameText(ExtractFileExt(fileName), '.toml') then begin
-    sl.SaveToFile(fileName);
-    Exit;
-  end;
-
-  json := TJsonObject.Create;
-  try
-    // Compact, UTF-8, Utf8WithoutBOM = false
-    json.SaveToFile(fileName, true, TEncoding.UTF8, false);
-  finally
-    json.Free;
-  end;
-
-  utf8List := TStringList.Create;
-  try
-    utf8List.LoadFromFile(fileName);
-    utf8List.Text := sl.Text;
-    utf8List.SaveToFile(fileName);
-  finally
-    utf8List.Free;
-  end;
-end;
-
-// Saves header (if any) followed by sl as a new file
-procedure SaveNewExportFile(sl, header: TStringList; const fileName: string);
-var
-  content: TStringList;
-begin
-  content := TStringList.Create;
-  try
-    if Assigned(header) then
-      content.AddStrings(header);
-    content.AddStrings(sl);
-    SaveListToFile(content, fileName);
-  finally
-    content.Free;
-  end;
-end;
-
 // Writes sl to fileName, asking to append or overwrite if it exists.
-// header is only written at the top of a new or overwritten file.
 // Returns false if the user cancelled.
-function WriteExportFile(sl, header: TStringList; const fileName: string): Boolean;
+function WriteExportFile(sl: TStringList; const fileName: string): Boolean;
 var
   existingContent: TStringList;
   userChoice: integer;
@@ -448,10 +297,9 @@ begin
       AddMessage('Appending to ' + fileName);
       existingContent := TStringList.Create;
       try
-        // A file with a UTF-8 BOM is read as UTF-8, otherwise as ANSI
         existingContent.LoadFromFile(fileName);
         existingContent.AddStrings(sl);
-        SaveListToFile(existingContent, fileName);
+        existingContent.SaveToFile(fileName);
       finally
         existingContent.Free;
       end;
@@ -459,20 +307,20 @@ begin
     end
     else if userChoice = mrNo then begin
       AddMessage('Overwriting ' + fileName);
-      SaveNewExportFile(sl, header, fileName);
+      sl.SaveToFile(fileName);
       Result := true;
     end;
   end
   else begin
     AddMessage('Saving ' + fileName);
-    SaveNewExportFile(sl, header, fileName);
+    sl.SaveToFile(fileName);
     Result := true;
   end;
 end;
 
 // Offers the default path first: the save dialog may ignore InitialDir
 // (Windows remembers the last folder, MO2 virtual folders are not always visible).
-function SaveExportList(sl, header: TStringList; const saveDir, fileBaseName, fileExt, saveLabel: string): Boolean;
+function SaveExportList(sl: TStringList; const saveDir, fileBaseName, saveLabel: string): Boolean;
 var
   dlgSave: TSaveDialog;
   defaultFileName: string;
@@ -481,7 +329,7 @@ var
 begin
   Result := false;
   askFileName := false;
-  defaultFileName := saveDir + fileBaseName + fileExt;
+  defaultFileName := saveDir + fileBaseName + '.ini';
 
   userChoice := MessageDlg(
     'Save ' + saveLabel + ' to:' + #13#10 + defaultFileName + #13#10 + #13#10 +
@@ -491,7 +339,7 @@ begin
     mtConfirmation, [mbYes, mbNo, mbCancel], 0);
 
   if userChoice = mrYes then begin
-    Result := WriteExportFile(sl, header, defaultFileName);
+    Result := WriteExportFile(sl, defaultFileName);
     if not Result then
       askFileName := true;
   end
@@ -510,10 +358,7 @@ begin
   dlgSave := TSaveDialog.Create(nil);
   try
     dlgSave.Options    := dlgSave.Options - [ofOverwritePrompt];
-    if fileExt = '.toml' then
-      dlgSave.Filter := 'Toml (*.toml)|*.toml'
-    else
-      dlgSave.Filter := 'Ini (*.ini)|*.ini';
+    dlgSave.Filter     := 'Ini (*.ini)|*.ini';
     dlgSave.Title      := 'Save ' + saveLabel;
     dlgSave.InitialDir := saveDir;
     dlgSave.FileName   := defaultFileName;
@@ -524,7 +369,7 @@ begin
         AddMessage('Save cancelled by user (' + saveLabel + ')');
         done := true;
       end
-      else if WriteExportFile(sl, header, dlgSave.FileName) then begin
+      else if WriteExportFile(sl, dlgSave.FileName) then begin
         Result := true;
         done := true;
       end;

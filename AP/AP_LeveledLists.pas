@@ -11,10 +11,10 @@ uses 'AP\AP_Utils';
 
 interface
 
-function BuildLVLNMap(useFormID: boolean): TStringList;
+function BuildLVLNMap: TStringList;
 procedure FreeLVLNMap(map: TStringList);
 function FindLVLNEntries(map: TStringList; npc: IInterface): integer;
-procedure AddLLRules(sl, map: TStringList; idx: integer; targetRecord, replacerRecord: IInterface; useFormID, disableAll: boolean);
+procedure AddLLRules(sl, map: TStringList; idx: integer; targetRecord, replacerRecord: IInterface);
 function CountPlacedReferences(npc: IInterface): integer;
 
 implementation
@@ -30,7 +30,7 @@ end;
 // Map: Name = NPC load order FormID, Object = TStringList of
 // "<LVLN SkyPatcher ID><TAB><level>~<count>", entries of a LVLN kept together.
 // Entries are read from the winning override of each LVLN.
-function BuildLVLNMap(useFormID: boolean): TStringList;
+function BuildLVLNMap: TStringList;
 var
   i, j, k, idx, entryCount: integer;
   lvlnGroup, lvln, entries, entry, ref: IInterface;
@@ -54,10 +54,7 @@ begin
         Continue;
 
       entries := ElementByPath(WinningOverride(lvln), 'Leveled List Entries');
-      lvlnID := GetSkyPatcherID(lvln, useFormID);
-      // LVLN without EditorID: fall back to its FormID
-      if lvlnID = '' then
-        lvlnID := GetSkyPatcherID(lvln, true);
+      lvlnID := GetSkyPatcherID(lvln);
       if not Assigned(entries) then
         Continue;
 
@@ -114,21 +111,16 @@ end;
 // For each leveled list containing the target NPC:
 //   filterByLLNPCs=<LVLN>:removeFromLLs=<target>
 //   filterByLLNPCs=<LVLN>:addToLLs=<replacer>~level~count, ...
-// Always SkyPatcher syntax (';' comments), whatever the NPC framework.
-procedure AddLLRules(sl, map: TStringList; idx: integer; targetRecord, replacerRecord: IInterface; useFormID, disableAll: boolean);
+procedure AddLLRules(sl, map: TStringList; idx: integer; targetRecord, replacerRecord: IInterface);
 var
   entries: TStringList;
   i, sepPos: integer;
-  coChar, targetID, replacerID, lvlnID, currentLvlnID, levelCount, addList: string;
+  targetID, replacerID, lvlnID, currentLvlnID, levelCount, addList: string;
 begin
   entries := TStringList(map.Objects[idx]);
 
-  coChar := '';
-  if disableAll then
-    coChar := ';';
-
-  targetID   := GetSkyPatcherID(targetRecord, useFormID);
-  replacerID := GetSkyPatcherID(replacerRecord, useFormID);
+  targetID   := GetSkyPatcherID(targetRecord);
+  replacerID := GetSkyPatcherID(replacerRecord);
 
   sl.Add(';' + GetElementEditValues(targetRecord, 'FULL'));
   sl.Add(';Form ID: ' + GetLocalFormIDHex(targetRecord) + '  Editor ID: ' + EditorID(targetRecord) +
@@ -146,8 +138,8 @@ begin
     end;
 
     if (lvlnID <> currentLvlnID) and (currentLvlnID <> '') then begin
-      sl.Add(coChar + 'filterByLLNPCs=' + currentLvlnID + ':removeFromLLs=' + targetID);
-      sl.Add(coChar + 'filterByLLNPCs=' + currentLvlnID + ':addToLLs=' + addList);
+      sl.Add('filterByLLNPCs=' + currentLvlnID + ':removeFromLLs=' + targetID);
+      sl.Add('filterByLLNPCs=' + currentLvlnID + ':addToLLs=' + addList);
       addList := '';
     end;
 

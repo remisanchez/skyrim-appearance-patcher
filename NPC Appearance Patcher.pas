@@ -2,13 +2,12 @@
   ==============================================================================
    NPC Appearance Patcher.pas
   ==============================================================================
-   Converts an NPC replacer plugin into runtime patches. Changes are detected
-   automatically: face (FaceGen), skin, race, gender and voice.
+   Converts an NPC replacer plugin into SkyPatcher runtime patches. Changes are
+   detected automatically: face (FaceGen), skin, race, gender and voice.
 
      - NPC in leveled lists, with FaceGen -> SkyPatcher leveledList rules: the
        original NPC is replaced by the isolated NPC, same level and count.
-     - Other NPCs -> SkyPatcher npc rules, or Recast when selected and able to
-       apply every change (face required, no race change).
+     - Other NPCs -> SkyPatcher npc rules.
 
    Run it on one or more replacer plugins (one config file set per plugin,
    same prefix for all). Integration mode first isolates the NPC
@@ -31,30 +30,25 @@ uses 'AP\AP_LeveledLists';
 
 const
   OUTPUT_ROOT = 'NPC Appearance Patcher';
-  USE_FORM_ID = true;
 
 var
   // Config buffers per plugin: Strings = plugin name, Objects = TStringList
-  mapSkyPatcher, mapRecast, mapLeveledLists: TStringList;
+  mapSkyPatcher, mapLeveledLists: TStringList;
   // Buffers of the plugin being processed
-  slSkyPatcher, slRecast, slLeveledLists: TStringList;
+  slSkyPatcher, slLeveledLists: TStringList;
   LVLNMap: TStringList;
-  callIsolator, useRecast: boolean;
-  llCount, spCount, recastCount, unchangedCount: integer;
+  callIsolator: boolean;
+  llCount, spCount, unchangedCount: integer;
 
 function Initialize: integer;
-var
-  userChoice: integer;
 begin
   Result := 0;
 
   mapSkyPatcher   := TStringList.Create;
-  mapRecast       := TStringList.Create;
   mapLeveledLists := TStringList.Create;
   LVLNMap        := nil;
   llCount        := 0;
   spCount        := 0;
-  recastCount    := 0;
   unchangedCount := 0;
   callIsolator   := false;
 
@@ -65,20 +59,6 @@ begin
     mtConfirmation, [mbYes, mbNo], 0) = mrYes then
     callIsolator := true;
 
-  userChoice := MessageDlg(
-    'Framework:' + #13#10 +
-    'Yes = Recast + SkyPatcher' + #13#10 +
-    'No = SkyPatcher' + #13#10 + #13#10 +
-    'With Recast, SkyPatcher still handles leveled lists and the changes' + #13#10 +
-    'Recast cannot apply (race, NPCs without FaceGen).',
-    mtConfirmation, [mbYes, mbNo, mbCancel], 0);
-  if userChoice = mrCancel then begin
-    AddMessage('Framework selection was canceled.');
-    Result := -1;
-    Exit;
-  end;
-  useRecast := userChoice = mrYes;
-
   if callIsolator then
     if IsolatorInitialize = -1 then begin
       callIsolator := false;
@@ -86,7 +66,7 @@ begin
       Exit;
     end;
 
-  LVLNMap := BuildLVLNMap(USE_FORM_ID);
+  LVLNMap := BuildLVLNMap;
 end;
 
 function GetPluginBuffer(map: TStringList; const pluginName: string): TStringList;
@@ -125,33 +105,28 @@ begin
   Result := FileExists(DataPath + OUTPUT_ROOT + '\' + relPath) or DataResourceExists(relPath);
 end;
 
-procedure AddHeader(sl: TStringList; const coChar: string; targetRecord, replacerRecord: IInterface);
-begin
-  sl.Add(coChar + GetElementEditValues(targetRecord, 'FULL'));
-  sl.Add(coChar + 'Form ID: ' + GetLocalFormIDHex(targetRecord) + '  Editor ID: ' + EditorID(targetRecord) +
-    '  ->  ' + EditorID(replacerRecord));
-end;
-
 procedure AddSkyPatcherRules(targetRecord, replacerRecord, skinRecord, raceRecord, voiceRecord: IInterface;
   hasFace, skinChanged, raceChanged, sexChanged, voiceChanged: boolean);
 var
   targetID: string;
 begin
-  targetID := 'filterByNpcs=' + GetSkyPatcherID(targetRecord, USE_FORM_ID);
-  AddHeader(slSkyPatcher, ';', targetRecord, replacerRecord);
+  targetID := 'filterByNpcs=' + GetSkyPatcherID(targetRecord);
+  slSkyPatcher.Add(';' + GetElementEditValues(targetRecord, 'FULL'));
+  slSkyPatcher.Add(';Form ID: ' + GetLocalFormIDHex(targetRecord) + '  Editor ID: ' + EditorID(targetRecord) +
+    '  ->  ' + EditorID(replacerRecord));
 
   if hasFace then
-    slSkyPatcher.Add(targetID + ':copyVisualStyle=' + GetSkyPatcherID(replacerRecord, USE_FORM_ID));
+    slSkyPatcher.Add(targetID + ':copyVisualStyle=' + GetSkyPatcherID(replacerRecord));
 
   // 'null' resets the skin to the race default body
   if skinChanged then
     if Assigned(skinRecord) then
-      slSkyPatcher.Add(targetID + ':skin=' + GetSkyPatcherID(skinRecord, USE_FORM_ID))
+      slSkyPatcher.Add(targetID + ':skin=' + GetSkyPatcherID(skinRecord))
     else
       slSkyPatcher.Add(targetID + ':skin=null');
 
   if raceChanged then
-    slSkyPatcher.Add(targetID + ':race=' + GetSkyPatcherID(raceRecord, USE_FORM_ID));
+    slSkyPatcher.Add(targetID + ':race=' + GetSkyPatcherID(raceRecord));
 
   if sexChanged then
     if IsNPCFemale(replacerRecord) then
@@ -160,34 +135,10 @@ begin
       slSkyPatcher.Add(targetID + ':removeFlags=female');
 
   if voiceChanged then
-    slSkyPatcher.Add(targetID + ':voiceType=' + GetSkyPatcherID(voiceRecord, USE_FORM_ID));
+    slSkyPatcher.Add(targetID + ':voiceType=' + GetSkyPatcherID(voiceRecord));
 
   slSkyPatcher.Add('');
   Inc(spCount);
-end;
-
-procedure AddRecastPatch(targetRecord, replacerRecord, skinRecord, voiceRecord: IInterface;
-  skinChanged, sexChanged, voiceChanged: boolean);
-begin
-  AddHeader(slRecast, '#', targetRecord, replacerRecord);
-  slRecast.Add('[[npcs]]');
-  slRecast.Add('target = "' + GetRecastID(targetRecord, USE_FORM_ID, true) + '"');
-  slRecast.Add('face = "' + GetRecastID(replacerRecord, USE_FORM_ID, true) + '"');
-
-  if skinChanged and Assigned(skinRecord) then
-    slRecast.Add('body = "' + GetRecastID(skinRecord, USE_FORM_ID, false) + '"');
-
-  if sexChanged then
-    if IsNPCFemale(replacerRecord) then
-      slRecast.Add('sex = "female"')
-    else
-      slRecast.Add('sex = "male"');
-
-  if voiceChanged then
-    slRecast.Add('voice = "' + GetRecastID(voiceRecord, USE_FORM_ID, false) + '"');
-
-  slRecast.Add('');
-  Inc(recastCount);
 end;
 
 function Process(e: IInterface): integer;
@@ -204,7 +155,6 @@ begin
 
   replacerFileName := GetFileName(GetFile(e));
   slSkyPatcher   := GetPluginBuffer(mapSkyPatcher, replacerFileName);
-  slRecast       := GetPluginBuffer(mapRecast, replacerFileName);
   slLeveledLists := GetPluginBuffer(mapLeveledLists, replacerFileName);
 
   replacerRecord := e;
@@ -268,57 +218,27 @@ begin
     placedCount := CountPlacedReferences(targetRecord);
     if placedCount > 0 then
       AddMessage('  Warning: also placed ' + IntToStr(placedCount) + ' time(s) in the world, these references keep the original look.');
-    AddLLRules(slLeveledLists, LVLNMap, idxLL, targetRecord, replacerRecord, USE_FORM_ID, false);
+    AddLLRules(slLeveledLists, LVLNMap, idxLL, targetRecord, replacerRecord);
     Inc(llCount);
     Exit;
   end;
 
-  // Recast needs a face and cannot change the race
-  if useRecast and hasFace and not raceChanged then begin
-    AddMessage('Recast:' + changes + ': ' + targetEditorID);
-    AddRecastPatch(targetRecord, replacerRecord, skinRecord, voiceRecord, skinChanged, sexChanged, voiceChanged);
-  end
-  else begin
-    if useRecast then
-      AddMessage('SkyPatcher (not supported by Recast):' + changes + ': ' + targetEditorID)
-    else
-      AddMessage('SkyPatcher:' + changes + ': ' + targetEditorID);
-    AddSkyPatcherRules(targetRecord, replacerRecord, skinRecord, raceRecord, voiceRecord,
-      hasFace, skinChanged, raceChanged, sexChanged, voiceChanged);
-  end;
-end;
-
-function GetRecastManifest(const pluginName: string): TStringList;
-begin
-  Result := TStringList.Create;
-  Result.Add('[manifest]');
-  Result.Add('name = "' + pluginName + '"');
-  Result.Add('priority = 100');
-  Result.Add('api_version = 1');
-  Result.Add('');
+  AddMessage('SkyPatcher:' + changes + ': ' + targetEditorID);
+  AddSkyPatcherRules(targetRecord, replacerRecord, skinRecord, raceRecord, voiceRecord,
+    hasFace, skinChanged, raceChanged, sexChanged, voiceChanged);
 end;
 
 // Saves every non-empty buffer of the map, one file per plugin
-procedure SaveBuffers(map: TStringList; const saveDir, fileExt, saveLabel: string; toDefaultPath: boolean);
+procedure SaveBuffers(map: TStringList; const saveDir, saveLabel: string; toDefaultPath: boolean);
 var
   i: integer;
-  header: TStringList;
 begin
   for i := 0 to map.Count - 1 do
-    if TStringList(map.Objects[i]).Count > 0 then begin
-      header := nil;
-      if fileExt = '.toml' then
-        header := GetRecastManifest(map[i]);
-      try
-        if toDefaultPath then
-          WriteExportFile(TStringList(map.Objects[i]), header, saveDir + map[i] + fileExt)
-        else
-          SaveExportList(TStringList(map.Objects[i]), header, saveDir, map[i], fileExt, saveLabel + ' (' + map[i] + ')');
-      finally
-        if Assigned(header) then
-          header.Free;
-      end;
-    end;
+    if TStringList(map.Objects[i]).Count > 0 then
+      if toDefaultPath then
+        WriteExportFile(TStringList(map.Objects[i]), saveDir + map[i] + '.ini')
+      else
+        SaveExportList(TStringList(map.Objects[i]), saveDir, map[i], saveLabel + ' (' + map[i] + ')');
 end;
 
 function CountFiles(map: TStringList): integer;
@@ -342,16 +262,16 @@ begin
     IsolatorFinalize;
 
   AddMessage('Leveled lists: ' + IntToStr(llCount) + ', SkyPatcher: ' + IntToStr(spCount) +
-    ', Recast: ' + IntToStr(recastCount) + ', no change: ' + IntToStr(unchangedCount) + '.');
+    ', no change: ' + IntToStr(unchangedCount) + '.');
 
   // Several files: one confirmation instead of one per file
-  fileCount := CountFiles(mapRecast) + CountFiles(mapSkyPatcher) + CountFiles(mapLeveledLists);
+  fileCount := CountFiles(mapSkyPatcher) + CountFiles(mapLeveledLists);
   toDefaultPath := false;
   userChoice := mrNo;
   if fileCount > 1 then
     userChoice := MessageDlg(
       IntToStr(fileCount) + ' config files to save in:' + #13#10 +
-      DataPath + OUTPUT_ROOT + '\SKSE\Plugins\' + #13#10 + #13#10 +
+      DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\' + #13#10 + #13#10 +
       'Yes: Save all to their default path' + #13#10 +
       'No: Confirm each file' + #13#10 +
       'Cancel: Do not save',
@@ -361,16 +281,13 @@ begin
     AddMessage('Save cancelled by user.')
   else begin
     toDefaultPath := userChoice = mrYes;
-    SaveBuffers(mapRecast, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\Recast\Patches\', '.toml',
-      'Recast NPC config', toDefaultPath);
-    SaveBuffers(mapSkyPatcher, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\npc\', '.ini',
+    SaveBuffers(mapSkyPatcher, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\npc\',
       'SkyPatcher NPC config', toDefaultPath);
-    SaveBuffers(mapLeveledLists, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\leveledList\', '.ini',
+    SaveBuffers(mapLeveledLists, DataPath + OUTPUT_ROOT + '\SKSE\Plugins\SkyPatcher\leveledList\',
       'SkyPatcher leveled list config', toDefaultPath);
   end;
 
   FreePluginBuffers(mapSkyPatcher);
-  FreePluginBuffers(mapRecast);
   FreePluginBuffers(mapLeveledLists);
   FreeLVLNMap(LVLNMap);
 end;
