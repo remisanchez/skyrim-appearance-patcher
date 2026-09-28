@@ -117,7 +117,7 @@ var
   relPath: string;
 begin
   relPath := GetNPCFaceGenRelPath(npc, true);
-  Result := FileExists(DataPath + OUTPUT_ROOT + '\' + relPath) or ResourceExists(relPath);
+  Result := FileExists(DataPath + OUTPUT_ROOT + '\' + relPath) or DataResourceExists(relPath);
 end;
 
 procedure AddHeader(sl: TStringList; const coChar: string; targetRecord, replacerRecord: IInterface);

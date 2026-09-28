@@ -24,7 +24,7 @@ function IsNPCFemale(npc: IInterface): Boolean;
 function IsNPCUsingTraits(npc: IInterface): Boolean;
 function GetFaceGenRelPath(const pluginName, formID: string; isMesh: Boolean): string;
 function GetNPCFaceGenRelPath(npc: IInterface; isMesh: Boolean): string;
-function ResourceExists(const relPath: string): Boolean;
+function DataResourceExists(const relPath: string): Boolean;
 function CopyResource(const relPath, outPath: string): Boolean;
 procedure SaveListToFile(sl: TStringList; const fileName: string);
 function WriteExportFile(sl, header: TStringList; const fileName: string): Boolean;
@@ -332,7 +332,7 @@ begin
 end;
 
 // Loose file in Data or file in an archive
-function ResourceExists(const relPath: string): Boolean;
+function DataResourceExists(const relPath: string): Boolean;
 begin
   Result := FileExists(DataPath + relPath) or (FindResourceContainer(relPath) <> '');
 end;
