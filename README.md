@@ -1,10 +1,10 @@
-# Appearance Patcher - xEdit Script
+# NPC Appearance Patcher - xEdit Script
 
 **Turn NPC replacer mods into conflict-free runtime patches (SkyPatcher / Recast), with full leveled list support.**
 
 NPC replacer mods change NPC appearances by overriding the original NPC records. Overrides conflict with every other mod touching the same NPCs, and generic NPCs spawned from leveled lists often end up with invisible faces (only floating hair and teeth) or crash the game.
 
-Appearance Patcher moves the replacer's appearance into new NPC records and generates the configuration files that apply it at runtime:
+NPC Appearance Patcher moves the replacer's appearance into new NPC records and generates the configuration files that apply it at runtime:
 
 - **Unique NPCs** get their new face, skin, race, gender and voice through [SkyPatcher](https://www.nexusmods.com/skyrimspecialedition/mods/106659) or [Recast](https://www.nexusmods.com/skyrimspecialedition/mods/186025).
 - **Generic NPCs from leveled lists** (bandits, guards, soldiers...) are replaced *inside the leveled lists* by the new NPC, keeping the original level and count. No more invisible faces.
@@ -25,8 +25,8 @@ Copy the content of this repository into your xEdit `Edit Scripts` folder, keepi
 
 ```
 Edit Scripts\
-├── Appearance Patcher.pas
-├── Appearance Isolator.pas
+├── NPC Appearance Patcher.pas
+├── NPC Appearance Isolator.pas
 └── AP\
     ├── AP_Utils.pas
     ├── AP_Isolator.pas
@@ -37,21 +37,21 @@ Edit Scripts\
 
 1. Start from the **original** replacer plugin(s), and preferably a **new game** (see [Save games](#save-games)).
 2. Launch SSEEdit from your mod manager with your full load order.
-3. Select one or more replacer plugins, right-click, **Apply Script**, then pick **Appearance Patcher**.
+3. Select one or more replacer plugins, right-click, **Apply Script**, then pick **NPC Appearance Patcher**.
 4. Answer the questions:
    - **Integration Mode**: *Yes* isolates the NPCs, then generates the configs. *No* only generates the configs, for plugins already isolated.
    - **Framework**: *Yes* = Recast + SkyPatcher, *No* = SkyPatcher.
    - **Prefix** (Integration Mode only): letters and digits, e.g. `RD`. Isolated NPCs are named `RD_<original EditorID>`. The same prefix is used for all selected plugins.
 5. Save the config files when prompted. With several files, a single confirmation saves them all to their default path.
 6. Close SSEEdit and **save the modified plugins**.
-7. In MO2, move the content of `overwrite\Appearance Patcher\` into a new mod and enable it.
+7. In MO2, move the content of `overwrite\NPC Appearance Patcher\` into a new mod and enable it.
 8. Keep the replacer plugins enabled: the isolated NPCs live in them. The replacer's own FaceGen files can stay installed.
 
 The xEdit log lists, for each NPC, the detected changes and how they are applied, followed by a summary.
 
-### Appearance Isolator
+### NPC Appearance Isolator
 
-`Appearance Isolator` runs the isolation step alone. Run **Appearance Patcher** afterwards without Integration Mode to generate the configs.
+`NPC Appearance Isolator` runs the isolation step alone. Run **NPC Appearance Patcher** afterwards without Integration Mode to generate the configs.
 
 ## How it works
 
@@ -88,10 +88,10 @@ Each isolated NPC is compared with the original NPC. Only real changes produce a
 | Unique, race change or no FaceGen | Recast + SkyPatcher | SkyPatcher `npc` (Recast cannot apply it) |
 | In a leveled list, without FaceGen | any | SkyPatcher `npc` on the original NPC, to avoid a faceless NPC |
 
-References always use FormIDs. Files are written to `Data\Appearance Patcher\` (MO2: `overwrite\Appearance Patcher\`), one set per plugin:
+References always use FormIDs. Files are written to `Data\NPC Appearance Patcher\` (MO2: `overwrite\NPC Appearance Patcher\`), one set per plugin:
 
 ```
-Appearance Patcher\
+NPC Appearance Patcher\
 ├── SKSE\Plugins\SkyPatcher\npc\<plugin>.ini
 ├── SKSE\Plugins\SkyPatcher\leveledList\<plugin>.ini
 ├── SKSE\Plugins\Recast\Patches\<plugin>.toml
@@ -128,7 +128,7 @@ FaceGen files extracted from a BSA go through an `_extract` folder next to their
 Isolation creates new NPC records, and **their FormIDs are part of your save games**: generic NPCs already spawned from leveled lists are stored in the save with a copy of their NPC data.
 
 - Isolate a plugin **once per playthrough**, then keep the saved plugin.
-- To regenerate the configs (other framework, fixed script...), run Appearance Patcher **without Integration Mode** on the already isolated plugin: no FormID changes.
+- To regenerate the configs (other framework, fixed script...), run NPC Appearance Patcher **without Integration Mode** on the already isolated plugin: no FormID changes.
 - Never isolate again from the original plugin during a playthrough. Old saves may crash on face morphs (`BSFaceGenMorphDataHead`) near NPCs spawned before the change. Waiting for the area to reset (10+ in-game days elsewhere) usually fixes it.
 
 ## Limitations
@@ -140,7 +140,7 @@ Isolation creates new NPC records, and **their FormIDs are part of your save gam
 
 ## Troubleshooting
 
-- **Invisible faces**: the content of `overwrite\Appearance Patcher\` is not installed as an active mod, so the isolated NPCs have no FaceGen.
+- **Invisible faces**: the content of `overwrite\NPC Appearance Patcher\` is not installed as an active mod, so the isolated NPCs have no FaceGen.
 - **Crash on an old save only**: see [Save games](#save-games).
 - **Script error in xEdit**: send the full xEdit log in an issue.
 
@@ -152,8 +152,8 @@ Isolation creates new NPC records, and **their FormIDs are part of your save gam
 
 | File | Role |
 |---|---|
-| `Appearance Patcher.pas` | Main script: change detection, framework routing, config output |
-| `Appearance Isolator.pas` | Runs the isolation alone |
+| `NPC Appearance Patcher.pas` | Main script: change detection, framework routing, config output |
+| `NPC Appearance Isolator.pas` | Runs the isolation alone |
 | `AP/AP_Utils.pas` | Dialogs, record IDs (SkyPatcher / Recast), record queries, resources, config saving (UTF-8 for .toml) |
 | `AP/AP_Isolator.pas` | Isolation, ESL checks, FaceGen copy |
 | `AP/AP_LeveledLists.pas` | Leveled list index (winning overrides) and SkyPatcher leveledList rules |
@@ -183,5 +183,5 @@ The scripts run in JvInterpreter, which has some quirks:
 Huge thanks to **mmsk4989**, author of [SkyPatcher RDF NPC Replacer Converter / NPC Replacer Converter](https://www.nexusmods.com/skyrimspecialedition/mods/141105). The idea of isolating replacer NPCs and converting them into runtime patches is theirs, and the isolation, ESL checks and config generation of this script are based on their code.
 
 - **mmsk4989**: original idea and base code.
-- **sanchofyah**: Appearance Patcher (leveled list support, automatic change detection, Recast / SkyPatcher routing).
+- **sanchofyah**: NPC Appearance Patcher (leveled list support, automatic change detection, Recast / SkyPatcher routing).
 - Authors of [SkyPatcher](https://www.nexusmods.com/skyrimspecialedition/mods/106659), [Recast](https://www.nexusmods.com/skyrimspecialedition/mods/186025) and [xEdit](https://github.com/TES5Edit/TES5Edit).

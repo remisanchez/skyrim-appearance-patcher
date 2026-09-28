@@ -1,6 +1,6 @@
 {
   ==============================================================================
-   Appearance Patcher.pas
+   NPC Appearance Patcher.pas
   ==============================================================================
    Converts an NPC replacer plugin into runtime patches. Changes are detected
    automatically: face (FaceGen), skin, race, gender and voice.
@@ -15,7 +15,7 @@
    overrides (AP_Isolator), otherwise the plugin must already be isolated
    (replacer EditorIDs "<prefix>_<original EditorID>").
 
-   Output: Data\Appearance Patcher\ (MO2: overwrite\Appearance Patcher\),
+   Output: Data\NPC Appearance Patcher\ (MO2: overwrite\NPC Appearance Patcher\),
    to be turned into a mod.
 
    Author: sanchofyah. Based on SkyPatcher RDF NPC Replacer Converter /
@@ -30,7 +30,7 @@ uses 'AP\AP_Isolator';
 uses 'AP\AP_LeveledLists';
 
 const
-  OUTPUT_ROOT = 'Appearance Patcher';
+  OUTPUT_ROOT = 'NPC Appearance Patcher';
   USE_FORM_ID = true;
 
 var

@@ -1,6 +1,6 @@
 {
   AP_Utils.pas
-  Shared helpers for the Appearance Patcher scripts: dialogs, record IDs,
+  Shared helpers for the NPC Appearance Patcher scripts: dialogs, record IDs,
   record queries and config file saving.
 }
 

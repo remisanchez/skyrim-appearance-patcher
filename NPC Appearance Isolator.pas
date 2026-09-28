@@ -1,7 +1,7 @@
 {
-  Appearance Isolator.pas
+  NPC Appearance Isolator.pas
   Runs the isolation phase alone (see AP\AP_Isolator.pas). Then run
-  "Appearance Patcher" without Integration Mode.
+  "NPC Appearance Patcher" without Integration Mode.
 }
 
 unit AppearanceIsolator;
@@ -9,7 +9,7 @@ unit AppearanceIsolator;
 uses 'AP\AP_Isolator';
 
 const
-  OUTPUT_ROOT = 'Appearance Patcher';
+  OUTPUT_ROOT = 'NPC Appearance Patcher';
 
 var
   initialized: boolean;
