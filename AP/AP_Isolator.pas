@@ -126,7 +126,10 @@ begin
   repeat
     inputOK := AskInputDialog('Editor ID prefix',
       'Letters (a-z, A-Z) and digits (0-9) only.' + #13#10 + '"_" is added after the prefix:', inputValue);
+    // "_" is added by the script: drop the ones typed at the end
     inputValue := Trim(inputValue);
+    while (Length(inputValue) > 0) and (Copy(inputValue, Length(inputValue), 1) = '_') do
+      inputValue := Copy(inputValue, 1, Length(inputValue) - 1);
     if not inputOK then
       canceled := true
     else if EditorIDInputValidation(inputValue) then
