@@ -2,8 +2,8 @@
   AP_Isolator.pas
   Isolation phase, based on the SkyPatcher RDF NPC Replacer Converter v2
   PreProcessor (mmsk4989): each NPC override of the replacer plugin is copied
-  as a new record "<prefix>_<EditorID>", its FaceGen files are copied (or moved)
-  to the new FormID, then the override is removed.
+  as a new record "<prefix>_<EditorID>", its FaceGen files are copied to the new
+  FormID, then the override is removed.
   FaceGen .nif files are copied as is, without editing.
 }
 
@@ -28,7 +28,7 @@ const
 
 var
   prefix, firstFileName: string;
-  fileChecked, removeFaceGen, removeMissingFaceGen: boolean;
+  fileChecked, removeMissingFaceGen: boolean;
   isolatedCount, removedCount: integer;
   slSkipped: TStringList;
 
@@ -40,15 +40,13 @@ begin
     Result := baseDir + 'textures\actors\character\FaceGenData\FaceTint\' + pluginName + '\' + formID + '.dds';
 end;
 
-function CopyFaceGenFile(const oldPath, newPath: string; moveFile: boolean): boolean;
+// Source files are kept: the copied .nif still points to the original FaceTint
+function CopyFaceGenFile(const oldPath, newPath: string): boolean;
 begin
   if not DirectoryExists(ExtractFilePath(newPath)) then
     ForceDirectories(ExtractFilePath(newPath));
 
-  if moveFile then
-    Result := RenameFile(PChar(oldPath), PChar(newPath))
-  else
-    Result := CopyFile(PChar(oldPath), PChar(newPath), False);
+  Result := CopyFile(PChar(oldPath), PChar(newPath), False);
 
   if Result then
     AddMessage('  ' + oldPath + ' -> ' + newPath)
@@ -145,7 +143,6 @@ begin
   opts := TStringList.Create;
   disableOpts := TStringList.Create;
   try
-    opts.Values['Remove FaceGen files in the replacer mod'] := 'False';
     opts.Values['Remove NPC records without FaceGen files'] := 'False';
 
     if not ShowCheckboxForm(opts, disableOpts, 'Choose Isolation Option') then begin
@@ -154,7 +151,6 @@ begin
       Exit;
     end;
 
-    removeFaceGen        := GetBoolSLValue(opts.Values['Remove FaceGen files in the replacer mod']);
     removeMissingFaceGen := GetBoolSLValue(opts.Values['Remove NPC records without FaceGen files']);
   finally
     opts.Free;
@@ -276,8 +272,8 @@ begin
   if not missingMesh then begin
     newMeshPath    := GetFaceGenPath(DataPath + outputRoot + '\', fileName, newFormID, true);
     newTexturePath := GetFaceGenPath(DataPath + outputRoot + '\', fileName, newFormID, false);
-    CopyFaceGenFile(oldMeshPath, newMeshPath, removeFaceGen);
-    CopyFaceGenFile(oldTexturePath, newTexturePath, removeFaceGen);
+    CopyFaceGenFile(oldMeshPath, newMeshPath);
+    CopyFaceGenFile(oldTexturePath, newTexturePath);
   end;
 
   Remove(e);
