@@ -6,8 +6,8 @@
   are copied to the new FormID, then the override is removed.
   FaceGen .nif files are copied as is: they keep pointing to the original
   FaceTint path. Use Traits overrides are left unchanged.
-  Plugins can be flagged as ESL before isolation, so that new records get
-  ESL FormIDs directly.
+  ESL flagged plugins: Next Object ID is fixed automatically, a plugin without
+  enough ESL FormIDs for the isolated NPCs is skipped.
 }
 
 unit AP_Isolator;
@@ -29,7 +29,6 @@ const
 
 var
   prefix: string;
-  convertToESL: boolean;
   slCheckedFiles: TStringList;
   isolatedCount, noFaceGenCount: integer;
   slSkipped: TStringList;
@@ -59,32 +58,27 @@ begin
     Result := 1;
 end;
 
-// Checks that the plugin can hold its new records plus the isolated NPCs as an ESL.
-// reason is set when it cannot.
-function CanBeESL(f: IInterface; var reason: string): boolean;
+// Checks that the ESL plugin has enough FormIDs left for the isolated NPCs.
+// reason is set when it has not.
+function CheckESLCapacity(f: IInterface; var reason: string): boolean;
 var
-  i, newRecords, toIsolate: integer;
-  firstID, objectID: Cardinal;
+  i, newRecords, toIsolate, maxRecords: integer;
   rec: IInterface;
 begin
   reason := '';
-  firstID := GetESLFirstObjectID(f);
   newRecords := 0;
-
   for i := 0 to RecordCount(f) - 1 do begin
     rec := RecordByIndex(f, i);
-    if Assigned(rec) and (Signature(rec) <> 'TES4') and IsMaster(rec) then begin
+    if Assigned(rec) and (Signature(rec) <> 'TES4') and IsMaster(rec) then
       Inc(newRecords);
-      objectID := FormID(rec) and $FFFFFF;
-      if (reason = '') and ((objectID < firstID) or (objectID > ESL_MAX_FORMID)) then
-        reason := 'record ' + Name(rec) + ' is outside the ESL FormID range, compact FormIDs first';
-    end;
   end;
 
   toIsolate := CountNPCsToIsolate(f);
-  if (reason = '') and (newRecords + toIsolate > ESL_MAX_FORMID - firstID + 1) then
-    reason := IntToStr(newRecords) + ' new records + ' + IntToStr(toIsolate) + ' NPCs to isolate exceed the ESL limit of ' +
-      IntToStr(ESL_MAX_FORMID - firstID + 1);
+  maxRecords := ESL_MAX_FORMID - GetESLFirstObjectID(f) + 1;
+  if newRecords + toIsolate > maxRecords then
+    reason := IntToStr(newRecords) + ' new records + ' + IntToStr(toIsolate) +
+      ' NPCs to isolate exceed the ESL limit of ' + IntToStr(maxRecords) +
+      '. Remove the ESL flag to process it';
 
   Result := reason = '';
 end;
@@ -143,12 +137,6 @@ begin
   end;
 
   AddMessage('Prefix: ' + prefix);
-
-  convertToESL := MessageDlg(
-    'Flag the replacer plugins as ESL when possible?' + #13#10 + #13#10 +
-    'The isolated NPCs then get ESL FormIDs directly: no need to compact' + #13#10 +
-    'FormIDs and run the script again afterwards.',
-    mtConfirmation, [mbYes, mbNo], 0) = mrYes;
 end;
 
 // Plugin checks, once per plugin. Returns false if its records must be skipped.
@@ -171,21 +159,12 @@ begin
   else begin
     eslFlag := GetElementNativeValues(ElementByIndex(f, 0), 'Record Header\Record Flags\ESL');
     if eslFlag then begin
-      if CanBeESL(f, reason) then
+      if CheckESLCapacity(f, reason) then
         FixESLNextObjectID(f)
       else begin
         AddMessage('Skipped plugin ' + fileName + ': ' + reason + '.');
         Result := false;
       end;
-    end
-    else if convertToESL then begin
-      if CanBeESL(f, reason) then begin
-        SetIsESL(f, true);
-        FixESLNextObjectID(f);
-        AddMessage('Flagged as ESL: ' + fileName);
-      end
-      else
-        AddMessage('Not flagged as ESL, ' + fileName + ': ' + reason + '.');
     end;
   end;
 
